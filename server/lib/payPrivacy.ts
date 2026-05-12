@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 
 const PAY_FIELDS = ["hourlyRate", "federalWithholdingPct", "stateWithholdingPct", "otherDeductionsCents"] as const;
 
-const SENSITIVE_FIELDS = [
+export const SENSITIVE_FIELDS = [
   "ssn",
   "homeAddress",
   "homeCity",

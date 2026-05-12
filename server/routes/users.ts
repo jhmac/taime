@@ -9,7 +9,7 @@ import { tryResolveStoreIdForUser } from "../services/storeResolver";
 import { clerkClient } from "@clerk/express";
 import { invalidatePermissionCache } from "../lib/permissionUtils";
 import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
-import { redactPayFields, redactPayFieldsFromArray, canSeePayData, redactSensitiveFields, redactSensitiveFieldsFromArray, canSeeSensitiveData } from "../lib/payPrivacy";
+import { redactPayFields, redactPayFieldsFromArray, canSeePayData, redactSensitiveFields, redactSensitiveFieldsFromArray, canSeeSensitiveData, SENSITIVE_FIELDS } from "../lib/payPrivacy";
 import { assertSameTenant, CrossTenantError } from "../lib/tenantScope";
 
 function generateInviteToken(): string {
@@ -300,6 +300,16 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
         const isOwnerOrAdmin = requesterRole === 'owner' || requesterRole === 'admin';
         if (!canEditTeam && !isOwnerOrAdmin) {
           return res.status(403).json({ message: "You don't have permission to update this user" });
+        }
+      }
+
+      const isSelfUpdate = requestingUserId === userId;
+      if (!isSelfUpdate) {
+        const canWriteSensitive = await canSeeSensitiveData(requestingUserId, storage);
+        if (!canWriteSensitive) {
+          for (const field of SENSITIVE_FIELDS) {
+            delete req.body[field];
+          }
         }
       }
 
