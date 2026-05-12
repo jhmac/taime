@@ -68,6 +68,36 @@ interface GenerateResult {
   salesDataAvailable: boolean;
 }
 
+interface RosterMember {
+  userId: string;
+  name: string;
+  firstName: string | null;
+  lastName: string | null;
+  roleName: string;
+  isAvailable: boolean;
+  availableFrom: string | null;
+  availableTo: string | null;
+  compositeScore: number;
+  performanceScore: number;
+  scheduledHoursThisWeek: number;
+  targetWeeklyHours: number | null;
+}
+
+function RosterScoreBadge({ score }: { score: number }) {
+  if (score >= 85) return (
+    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-yellow-400 text-yellow-900 text-[9px] font-bold shrink-0" title={`Score: ${score}`}>{score}</span>
+  );
+  if (score >= 60) return (
+    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-300 text-slate-700 text-[9px] font-bold shrink-0" title={`Score: ${score}`}>{score}</span>
+  );
+  if (score >= 35) return (
+    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-700/30 text-amber-900 dark:text-amber-200 text-[9px] font-bold shrink-0" title={`Score: ${score}`}>{score}</span>
+  );
+  return (
+    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-muted text-muted-foreground text-[9px] font-bold shrink-0" title={`Score: ${score}`}>{score}</span>
+  );
+}
+
 function formatLocalDate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
@@ -697,6 +727,7 @@ export default function ScheduleManagement() {
   const weekDates = getWeekDates(selectedWeek);
   const startDateParam = formatLocalDate(weekDates[0]);
   const endDateParam = formatLocalDate(weekDates[6]);
+  const todayDateStr = formatLocalDate(new Date());
 
   const { data: schedules = [], isLoading: schedulesLoading } = useQuery<Schedule[]>({
     queryKey: ["/api/schedules", startDateParam, endDateParam],
@@ -772,6 +803,23 @@ export default function ScheduleManagement() {
     },
     enabled: isAdmin,
   });
+
+  // Today's ranked availability data — powers the rich employee cards in the roster column.
+  // Same endpoint the "Today's Intelligence" sidebar uses; keyed by userId for O(1) lookup.
+  const { data: todayAvailData } = useQuery<{ members: RosterMember[] }>({
+    queryKey: ["/api/schedules/today-availability", todayDateStr],
+    queryFn: async () => {
+      const res = await fetch(`/api/schedules/today-availability?date=${todayDateStr}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed');
+      return res.json();
+    },
+    enabled: isAdmin,
+  });
+
+  const memberMap = useMemo<Record<string, RosterMember>>(() => {
+    if (!todayAvailData?.members) return {};
+    return Object.fromEntries(todayAvailData.members.map(m => [m.userId, m]));
+  }, [todayAvailData]);
 
   const activeShop = connectedShops.find((s: any) => s.isActive) || (connectedShops.length > 0 ? connectedShops[0] : null);
 
@@ -1332,8 +1380,6 @@ export default function ScheduleManagement() {
       });
     }
   };
-
-  const todayDateStr = formatLocalDate(new Date());
 
   const handleQuickAdd = (member: any, startTime: string, endTime: string) => {
     setCreateShiftDefaults({ userId: member.userId, date: todayDateStr });
@@ -2061,24 +2107,59 @@ export default function ScheduleManagement() {
               const name = `${emp.firstName} ${emp.lastName}`;
               return (
                 <tr key={emp.id} className="border-b hover:bg-muted/20 group">
-                  {/* Employee Info Cell — avatar-only on mobile, full name + stats on desktop */}
-                  <td className="sticky left-0 bg-background z-[5] px-1.5 md:px-3 py-2 border-r group-hover:bg-muted/20 w-14 md:w-[200px] min-w-[56px] md:min-w-[200px]">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={cn("w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0", getInitialColor(name))}
-                        title={name}
-                      >
-                        {getInitials(emp)}
-                      </div>
-                      <div className="min-w-0 hidden md:block">
-                        <div className="text-sm font-medium truncate">{name}</div>
-                        <div className="text-[10px] text-muted-foreground">
-                          {stats.hours.toFixed(2)} hrs / ${stats.wages.toFixed(2)}
+                  {/* Employee Info Cell — rich availability card */}
+                  {(() => {
+                    const md = memberMap[emp.id];
+                    const fmt = (t: string) => {
+                      const [h, m] = t.split(':').map(Number);
+                      const ampm = h >= 12 ? 'pm' : 'am';
+                      const h12 = h % 12 || 12;
+                      return m ? `${h12}:${String(m).padStart(2,'0')}${ampm}` : `${h12}${ampm}`;
+                    };
+                    const availLabel = md?.isAvailable && md.availableFrom && md.availableTo
+                      ? `${fmt(md.availableFrom)}–${fmt(md.availableTo)}`
+                      : null;
+                    return (
+                      <td className="sticky left-0 bg-background z-[5] px-2 py-2 border-r group-hover:bg-muted/20 w-[200px] min-w-[180px]">
+                        <div className="flex items-start gap-2">
+                          <div
+                            className={cn("w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 mt-0.5", getInitialColor(name))}
+                            title={name}
+                          >
+                            {getInitials(emp)}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1 flex-wrap">
+                              <span className="text-xs font-semibold truncate leading-tight">{name}</span>
+                              {md && <RosterScoreBadge score={md.compositeScore} />}
+                            </div>
+                            <div className="text-[10px] text-muted-foreground truncate">
+                              {md?.roleName || 'Employee'}
+                            </div>
+                            {availLabel ? (
+                              <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
+                                {availLabel}
+                              </div>
+                            ) : md && !md.isAvailable ? (
+                              <div className="text-[10px] text-red-500">Unavailable today</div>
+                            ) : (
+                              <div className="text-[10px] text-muted-foreground">
+                                {stats.hours.toFixed(1)} hrs / ${stats.wages.toFixed(0)}
+                              </div>
+                            )}
+                            {md && md.performanceScore > 0 && (
+                              <div className="mt-1 w-full h-1.5 bg-muted rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-emerald-500 rounded-full"
+                                  style={{ width: `${Math.min(100, md.performanceScore)}%` }}
+                                />
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        <EmployeeDefaultSchedule userId={emp.id} />
-                      </div>
-                    </div>
-                  </td>
+                      </td>
+                    );
+                  })()}
 
                   {/* Day Cells */}
                   {weekDates.map((date, dayIdx) => {
