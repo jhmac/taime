@@ -51,11 +51,19 @@ export function usePWAUpdate() {
     if (!waitingSW) return;
 
     function applyUpdate() {
-      if (!waitingSW) return;
-      waitingSW.postMessage({ type: 'SKIP_WAITING' });
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
-        window.location.reload();
-      }, { once: true });
+      if (waitingSW) {
+        // Tell the SW to skip its waiting phase and activate immediately.
+        // sw.js also calls self.skipWaiting() on install, so the SW may
+        // have already activated by the time the user taps "Reload" — in
+        // that case the SKIP_WAITING message is a harmless no-op.
+        waitingSW.postMessage({ type: 'SKIP_WAITING' });
+      }
+      // The controllerchange listener in main.tsx auto-reloads when the SW
+      // takes over.  Calling reload() here as well covers the race where
+      // controllerchange already fired before this handler ran (i.e. the SW
+      // activated itself via self.skipWaiting() on install, then the user
+      // saw the toast and clicked Reload).
+      window.location.reload();
     }
 
     const { dismiss } = toast({
