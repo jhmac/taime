@@ -6,6 +6,11 @@ import { OvertimePreventionService } from "../services/overtimePreventionService
 import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 import { notificationService } from "../services/notificationService";
 import { tryResolveStoreIdForUser } from "../services/storeResolver";
+import { assertSameTenant, CrossTenantError } from "../lib/tenantScope";
+import { canSeePayData } from "../lib/payPrivacy";
+import { users as usersTable } from "@shared/schema";
+import { db } from "../db";
+import { eq } from "drizzle-orm";
 
 function toEndOfDay(date: Date): Date {
   const d = new Date(date);
@@ -150,7 +155,24 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
       const startDateStr = (startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)).toISOString().split("T")[0];
       const endDateStr = (endDate || new Date(Date.now() + 24 * 60 * 60 * 1000)).toISOString().split("T")[0];
 
-      const [allEntries, allUsers, allOffsiteSessions, allSchedules, allMileageReimbs] = await Promise.all([
+      const requesterStoreId = await tryResolveStoreIdForUser(userId);
+      const reviewRoleName: string | undefined = req.user.role?.name;
+      const [reviewerRow] = await db
+        .select({ locationId: usersTable.locationId })
+        .from(usersTable)
+        .where(eq(usersTable.id, userId))
+        .limit(1);
+      const isMultiStoreOwner = !requesterStoreId &&
+        !reviewerRow?.locationId &&
+        reviewRoleName === 'owner';
+
+      if (!requesterStoreId && !isMultiStoreOwner) {
+        return res.status(503).json({
+          message: "Store location could not be resolved for your account. Contact your administrator.",
+        });
+      }
+
+      const [allEntries, allUsersRaw, allOffsiteSessions, allSchedules, allMileageReimbs] = await Promise.all([
         storage.getAllTimeEntries(startDate, endDate, true, null),
         storage.getAllUsers(),
         storage.getOffsiteSessions({}),
@@ -160,6 +182,14 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
           endDate: endDate,
         }),
       ]);
+
+      const allUsers = requesterStoreId
+        ? allUsersRaw.filter(u => u.locationId === requesterStoreId)
+        : allUsersRaw;
+      const storeUserIds = new Set(allUsers.map(u => u.id));
+      const scopedEntries = requesterStoreId
+        ? allEntries.filter(e => storeUserIds.has(e.userId))
+        : allEntries;
 
       const mileageReimbByEntry = new Map<string, { milesDecimal: number; rateCents: number; totalCents: number; equivalentMinutes: number; id: string; adjustedMilesDecimal: string | null }[]>();
       for (const reimb of allMileageReimbs) {
@@ -199,7 +229,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
       }
 
       const entriesByUser = new Map<string, any[]>();
-      for (const entry of allEntries) {
+      for (const entry of scopedEntries) {
         const list = entriesByUser.get(entry.userId) || [];
         list.push(entry);
         entriesByUser.set(entry.userId, list);
@@ -504,12 +534,24 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         return res.status(403).json({ message: "Insufficient permissions" });
       }
 
+      if (!isOwner) {
+        try {
+          await assertSameTenant(requestingUserId, targetUserId);
+        } catch (e) {
+          if (e instanceof CrossTenantError) {
+            return res.status(403).json({ message: e.message });
+          }
+          throw e;
+        }
+      }
+
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
       const endDate = req.query.endDate ? toEndOfDay(new Date(req.query.endDate as string)) : undefined;
 
-      const [entries, user] = await Promise.all([
+      const [entries, user, hasPay] = await Promise.all([
         storage.getUserTimeEntries(targetUserId, startDate, endDate),
         storage.getUser(targetUserId),
+        canSeePayData(requestingUserId, storage),
       ]);
 
       if (!user) {
@@ -547,16 +589,20 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         });
       }
 
+      const employeePayload: Record<string, any> = {
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        phone: user.phone,
+        profileImageUrl: user.profileImageUrl,
+      };
+      if (hasPay || isOwner) {
+        employeePayload.hourlyRate = user.hourlyRate;
+      }
+
       res.json({
-        employee: {
-          id: user.id,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          email: user.email,
-          phone: user.phone,
-          profileImageUrl: user.profileImageUrl,
-          hourlyRate: user.hourlyRate,
-        },
+        employee: employeePayload,
         dailyEntries,
       });
     } catch (error: any) {
@@ -1063,12 +1109,37 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
       const settings = await storage.getCompanySettings();
       const otThreshold = settings?.overtimeThresholdHours ?? 40;
 
-      const [allEntries, allUsers, exportOffsiteSessions, allMileageReimbursements] = await Promise.all([
+      const exportStoreId = await tryResolveStoreIdForUser(userId);
+      const exportRoleName: string | undefined = req.user.role?.name;
+      const [exporterRow] = await db
+        .select({ locationId: usersTable.locationId })
+        .from(usersTable)
+        .where(eq(usersTable.id, userId))
+        .limit(1);
+      const isExportMultiStoreOwner = !exportStoreId &&
+        !exporterRow?.locationId &&
+        exportRoleName === 'owner';
+
+      if (!exportStoreId && !isExportMultiStoreOwner) {
+        return res.status(503).json({
+          message: "Store location could not be resolved for your account. Contact your administrator.",
+        });
+      }
+
+      const [allEntriesRaw, allUsersRaw, exportOffsiteSessions, allMileageReimbursements] = await Promise.all([
         storage.getAllTimeEntries(startDate, endDate, false, null),
         storage.getAllUsers(),
         storage.getOffsiteSessions({}),
         storage.getMileageReimbursements({}),
       ]);
+
+      const allUsers = exportStoreId
+        ? allUsersRaw.filter(u => u.locationId === exportStoreId)
+        : allUsersRaw;
+      const exportStoreUserIds = new Set(allUsers.map(u => u.id));
+      const allEntries = exportStoreId
+        ? allEntriesRaw.filter(e => exportStoreUserIds.has(e.userId))
+        : allEntriesRaw;
 
       const exportOffsiteByEntry = new Map<string, number>();
       for (const session of exportOffsiteSessions) {

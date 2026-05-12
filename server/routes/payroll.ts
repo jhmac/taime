@@ -447,7 +447,29 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
       const end = new Date(period.endDate);
       const timeEntriesData = await storage.getAllTimeEntries(start, end, false, null);
       const schedulesData = await storage.getAllSchedules(start, end);
-      const allUsers = await db.select().from(users);
+
+      const requesterLocationId = await tryResolveStoreIdForUser(userId);
+      const payrollReviewRoleName: string | undefined = req.user.role?.name;
+      const [payrollReviewerRow] = await db
+        .select({ locationId: users.locationId })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      const isPayrollMultiStoreOwner = !requesterLocationId &&
+        !payrollReviewerRow?.locationId &&
+        payrollReviewRoleName === 'owner';
+
+      if (!requesterLocationId && !isPayrollMultiStoreOwner) {
+        return res.status(503).json({
+          message: "Store location could not be resolved for your account. Contact your administrator.",
+        });
+      }
+
+      const allUsers = requesterLocationId
+        ? await db.select().from(users).where(
+            eq(users.locationId, requesterLocationId)
+          )
+        : await db.select().from(users);
       const [settings] = await db.select().from(companySettings).limit(1);
       const holidayRules = await storage.getAllHolidayPayRules();
 

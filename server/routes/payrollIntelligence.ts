@@ -65,8 +65,26 @@ export function registerPayrollIntelligenceRoutes(
         shopName = shopRow[0]?.shopName ?? null;
       }
 
-      // Get saved payroll settings
+      // Resolve store — check if the user has a locationId set but couldn't resolve it
+      const [requesterRow] = await db
+        .select({ locationId: users.locationId })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      const userHasLocationAssignment = !!requesterRow?.locationId;
+
       const storeId = await tryResolveStoreIdForUser(userId);
+
+      const payrollIntelRoleName: string | undefined = req.user.role?.name;
+      const isTrueMultiStoreOwner = !userHasLocationAssignment && payrollIntelRoleName === 'owner';
+
+      if (storeId === null && (userHasLocationAssignment || !isTrueMultiStoreOwner)) {
+        return res.status(503).json({
+          message: "Store location could not be resolved for your account. Contact your administrator.",
+        });
+      }
+
+      // Get saved payroll settings
       let savedSettings = { payrollTargetPct: 30, storeType: 'fashion_boutique' };
       if (storeId) {
         const settingsRow = await db.select()

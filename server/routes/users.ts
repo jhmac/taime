@@ -9,6 +9,8 @@ import { tryResolveStoreIdForUser } from "../services/storeResolver";
 import { clerkClient } from "@clerk/express";
 import { invalidatePermissionCache } from "../lib/permissionUtils";
 import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
+import { redactPayFields, redactPayFieldsFromArray, canSeePayData } from "../lib/payPrivacy";
+import { assertSameTenant, CrossTenantError } from "../lib/tenantScope";
 
 function generateInviteToken(): string {
   return randomBytes(32).toString("hex");
@@ -182,7 +184,11 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
         if (!currentUser) {
           console.warn(`[/api/users] Fallback miss: no user found for id=${userId} email=${req.user.email || 'none'}`);
         }
-        res.json(currentUser ? [currentUser] : []);
+        const selfHasPay = await canSeePayData(userId, storage);
+        const selfResult = currentUser
+          ? (selfHasPay ? currentUser : redactPayFields(currentUser))
+          : null;
+        res.json(selfResult ? [selfResult] : []);
         return;
       }
       
@@ -194,6 +200,8 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
 
       const activeFilter = includeAll ? undefined : eq(users.isActive, true);
 
+      const hasPay = await canSeePayData(userId, storage);
+
       if (requestingLocationId) {
         // Primary path: FK-based store scoping (rename-safe).
         // Include users assigned to this store OR users with no store assignment at all
@@ -204,7 +212,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
         );
         const whereClause = activeFilter ? and(locationFilter, activeFilter) : locationFilter;
         const filteredUsers = await db.select().from(users).where(whereClause);
-        res.json(filteredUsers);
+        res.json(hasPay ? filteredUsers : redactPayFieldsFromArray(filteredUsers));
       } else if (requestingLocationName) {
         // Compatibility fallback for requesters whose locationId hasn't been backfilled yet.
         // Include users with a matching locationName OR users with no location at all.
@@ -214,7 +222,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
         );
         const whereClause = activeFilter ? and(locationFilter, activeFilter) : locationFilter;
         const filteredUsers = await db.select().from(users).where(whereClause);
-        res.json(filteredUsers);
+        res.json(hasPay ? filteredUsers : redactPayFieldsFromArray(filteredUsers));
       } else {
         // No store assignment — return full list only for owners/admins.
         // Scoped viewers without a store see only themselves.
@@ -223,9 +231,11 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
           const allUsers = includeAll
             ? await db.select().from(users)
             : await db.select().from(users).where(eq(users.isActive, true));
-          res.json(allUsers);
+          res.json(hasPay ? allUsers : redactPayFieldsFromArray(allUsers));
         } else {
-          const selfUser = requestingUser ? [requestingUser] : [];
+          const selfUser = requestingUser
+            ? [hasPay ? requestingUser : redactPayFields(requestingUser)]
+            : [];
           res.json(selfUser);
         }
       }
@@ -237,13 +247,27 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
 
   app.get('/api/users/:userId', isAuthenticated, async (req: any, res) => {
     try {
+      const requestingUserId = req.user.id;
       const { userId } = req.params;
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
+
+      try {
+        await assertSameTenant(requestingUserId, userId);
+      } catch (e) {
+        if (e instanceof CrossTenantError) {
+          return res.status(403).json({ message: e.message });
+        }
+        throw e;
+      }
+
       const role = user.roleId ? await db.select().from(roles).where(eq(roles.id, user.roleId)).then(r => r[0]) : null;
-      res.json({ ...user, role });
+      const isSelf = requestingUserId === userId;
+      const hasPay = isSelf || await canSeePayData(requestingUserId, storage);
+      const payload = hasPay ? { ...user, role } : { ...redactPayFields(user), role };
+      res.json(payload);
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });
