@@ -576,7 +576,8 @@ export default function ScheduleManagement() {
     // Default CLOSED — the sidebar repeats the same employee list that's
     // already in the table's first column, which looks like a duplicate on
     // any screen size. Users can open it explicitly via "Today's Team".
-    try { return localStorage.getItem('schedMgmt_showCommandPanel') === 'true'; } catch { return false; }
+    // v2 key — old key may be 'true' from before; new key defaults everyone to closed.
+    try { return localStorage.getItem('schedMgmt_cmdPanel_v2') === 'true'; } catch { return false; }
   });
   const [isMobilePanel, setIsMobilePanel] = useState(false);
   const [showMobileSheet, setShowMobileSheet] = useState(false);
@@ -1326,7 +1327,7 @@ export default function ScheduleManagement() {
     } else {
       setShowCommandPanel(v => {
         const next = !v;
-        try { localStorage.setItem('schedMgmt_showCommandPanel', String(next)); } catch {}
+        try { localStorage.setItem('schedMgmt_cmdPanel_v2', String(next)); } catch {}
         return next;
       });
     }
@@ -1651,7 +1652,7 @@ export default function ScheduleManagement() {
       <div className="flex flex-1 min-h-0">
         {/* Today's Intelligence Command Panel — desktop sidebar LEFT (roster view only) */}
         {showCommandPanel && isAdmin && scheduleView === 'roster' && (
-          <div className="w-72 min-w-[17rem] max-w-[17rem] border-r bg-background flex-shrink-0 flex-col overflow-hidden hidden lg:flex">
+          <div className="w-72 min-w-[17rem] max-w-[17rem] border-r bg-background flex-shrink-0 flex-col overflow-hidden hidden xl:flex">
             <AvailabilityCommandPanel
               date={todayDateStr}
               onQuickAdd={handleQuickAdd}
@@ -1688,8 +1689,8 @@ export default function ScheduleManagement() {
         {scheduleView === 'roster' && (
         <>
 
-        {/* ── Mobile: Day-strip + per-day employee card list (hidden md+) ── */}
-        <div className="md:hidden flex-1 flex flex-col min-h-0 overflow-hidden">
+        {/* ── Mobile/tablet/laptop: Day-strip + per-day employee card list (hidden xl+) ── */}
+        <div className="xl:hidden flex-1 flex flex-col min-h-0 overflow-hidden">
           {/* Horizontal day selector */}
           <div className="flex overflow-x-auto gap-1.5 px-3 py-2.5 border-b bg-background shrink-0 no-scrollbar">
             {weekDates.map((date, i) => {
@@ -1876,8 +1877,8 @@ export default function ScheduleManagement() {
           </div>
         </div>
 
-        {/* ── Desktop: Wide weekly roster table (visible md+) ────────────── */}
-        <div className="hidden md:block flex-1 overflow-x-auto min-w-0">
+        {/* ── Desktop: Wide weekly roster table (visible xl+) ────────────── */}
+        <div className="hidden xl:block flex-1 overflow-x-auto min-w-0">
         {/* AI-generated schedule banner */}
         {aiResult && (
           <div className="border-b bg-violet-50/60 dark:bg-violet-950/20 px-4 py-2.5" data-testid="banner-ai-schedule">
