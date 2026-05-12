@@ -3011,7 +3011,25 @@ export default function CreateShiftSplitPanel({
     },
     onError: (err, vars) => {
       dlog("updateActualMutation/error", { id: vars?.id, error: String(err) });
-      toast({ title: "Error", description: "Failed to update shift.", variant: "destructive" });
+      const e = err as { message?: string };
+      const rawMsg = e?.message ?? String(err);
+      let isOverlap = false;
+      let serverMessage: string | undefined;
+      try {
+        const jsonStart = rawMsg.indexOf('{');
+        if (jsonStart !== -1) {
+          const body = JSON.parse(rawMsg.slice(jsonStart)) as { code?: string; message?: string };
+          isOverlap = body.code === 'shift_overlap';
+          serverMessage = body.message;
+        }
+      } catch {
+        isOverlap = rawMsg.includes('"shift_overlap"');
+      }
+      if (isOverlap) {
+        toast({ title: "Scheduling conflict", description: "Employee already has a shift in this time range.", variant: "destructive" });
+        return;
+      }
+      toast({ title: "Error", description: serverMessage ?? rawMsg ?? "Failed to update shift.", variant: "destructive" });
     },
   });
 

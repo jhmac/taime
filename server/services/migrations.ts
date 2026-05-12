@@ -1645,6 +1645,46 @@ export async function runSchemaMigrations(): Promise<void> {
     console.warn('[Migration] timesheet_reminder_log table creation failed (non-fatal):', pgErr?.message ?? err);
   }
 
+  // AI Scheduling Rules table (migration 0019 — not in tableCreations loop)
+  try {
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS ai_scheduling_rules (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        store_id varchar,
+        rule_type varchar NOT NULL,
+        params jsonb DEFAULT '{}'::jsonb,
+        is_enabled boolean DEFAULT true,
+        created_at timestamp DEFAULT now(),
+        updated_at timestamp DEFAULT now()
+      )
+    `));
+  } catch (err: unknown) {
+    const pgErr = err as { message?: string };
+    console.warn('[Migration] ai_scheduling_rules table creation failed (non-fatal):', pgErr?.message ?? err);
+  }
+
+  // Special Circumstances table (migration 0026 — not in tableCreations loop)
+  try {
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS special_circumstances (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        store_id varchar REFERENCES work_locations(id) ON DELETE CASCADE,
+        name varchar NOT NULL,
+        description text,
+        category varchar,
+        is_enabled boolean NOT NULL DEFAULT true,
+        created_at timestamp DEFAULT now(),
+        updated_at timestamp DEFAULT now()
+      )
+    `));
+    await db.execute(sql.raw(`
+      CREATE INDEX IF NOT EXISTS idx_special_circumstances_store ON special_circumstances (store_id)
+    `));
+  } catch (err: unknown) {
+    const pgErr = err as { message?: string };
+    console.warn('[Migration] special_circumstances table creation failed (non-fatal):', pgErr?.message ?? err);
+  }
+
   // Mark any generation jobs that were still "running" when the server last shut down.
   // These are orphaned — the setImmediate background task was lost on restart — so
   // they will never complete. Reset them to "failed" so users can retry.
@@ -1690,6 +1730,7 @@ export async function seedDefaultRoles(): Promise<void> {
       { name: 'schedule.view_all',          displayName: 'View All Schedules',         description: 'View all team schedules',                             category: 'schedule' },
       { name: 'schedule.edit_own',          displayName: 'Edit Own Schedule',          description: 'Edit own schedule',                                   category: 'schedule' },
       { name: 'schedule.edit_all',          displayName: 'Edit All Schedules',         description: 'Edit any schedules',                                  category: 'schedule' },
+      { name: 'schedule.manage',            displayName: 'Manage Schedules',           description: 'Full schedule management (create, edit, delete, publish)', category: 'schedule' },
       { name: 'schedule.create',            displayName: 'Create Schedules',           description: 'Create schedules for team',                           category: 'schedule' },
       { name: 'time.view_own',              displayName: 'View Own Time',              description: 'View own time entries',                               category: 'time' },
       { name: 'time.view_all',              displayName: 'View All Time',              description: 'View all time entries',                               category: 'time' },
@@ -1743,7 +1784,7 @@ export async function seedDefaultRoles(): Promise<void> {
     const adminPerms = [
       'admin.manage_all', 'admin.system_settings', 'admin.role_management', 'admin.location_management',
       'hr.view_team', 'hr.edit_team', 'hr.insights', 'hr.payroll_view', 'hr.payroll_process', 'hr.edit_pay_rates',
-      'schedule.view_all', 'schedule.edit_all', 'schedule.create',
+      'schedule.view_all', 'schedule.edit_all', 'schedule.manage', 'schedule.create',
       'time.view_all', 'time.edit_all', 'time.approve', 'time.clock_in_out',
       'tasks.view_all', 'tasks.edit_all', 'tasks.create', 'tasks.ai_assign',
       'comm.view_messages', 'comm.send_messages', 'comm.send_announcements',
@@ -1753,7 +1794,7 @@ export async function seedDefaultRoles(): Promise<void> {
     ];
     const managerPerms = [
       'hr.view_team', 'hr.edit_team', 'hr.edit_pay_rates',
-      'schedule.view_all', 'schedule.edit_all', 'schedule.edit_own', 'schedule.create', 'schedule.view_own',
+      'schedule.view_all', 'schedule.edit_all', 'schedule.manage', 'schedule.edit_own', 'schedule.create', 'schedule.view_own',
       'time.view_all', 'time.edit_all', 'time.view_own', 'time.edit_own', 'time.clock_in_out', 'time.approve',
       'tasks.view_all', 'tasks.edit_all', 'tasks.view_own', 'tasks.edit_own', 'tasks.create', 'tasks.ai_assign',
       'comm.view_messages', 'comm.send_messages', 'comm.send_announcements',
