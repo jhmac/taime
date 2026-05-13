@@ -1171,7 +1171,12 @@ export default function ScheduleManagement() {
       setRemovedEntries(new Set());
       setReviewResult(null);
       setEditingAiEntry(null);
-      toast({ title: "Schedule Generated", description: data.summary || "AI schedule ready for review." });
+      // Switch to Roster view so the purple preview pills (and Apply button) are visible
+      handleViewChange('roster');
+      toast({
+        title: "Schedule Generated",
+        description: (data.summary || "AI schedule ready for review.") + " Review the purple shifts below, then tap Apply.",
+      });
     },
     onError: (error: any) => {
       setWeekGenProgress(null);
