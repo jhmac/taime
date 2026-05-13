@@ -381,10 +381,66 @@ function ShiftBlock({
   );
 }
 
-// PendingShiftBlock — purple dashed overlay for AI-proposed shifts not yet applied
-function PendingShiftBlock({ entry, hourPx, isMobile }: {
+// Unified layout: places confirmed + pending shifts side-by-side without overlap
+type UnifiedItem =
+  | { isPending: false; id: string; startMs: number; endMs: number; schedule: Schedule }
+  | { isPending: true;  id: string; startMs: number; endMs: number; entry: AiScheduleEntry };
+
+interface PositionedUnified { item: UnifiedItem; col: number; totalCols: number; }
+
+function layoutUnified(confirmed: Schedule[], pending: AiScheduleEntry[], date: Date): PositionedUnified[] {
+  const dayStr = formatLocalDate(date);
+  const all: UnifiedItem[] = [
+    ...confirmed.map(s => ({
+      isPending: false as const,
+      id: s.id,
+      startMs: new Date(s.startTime).getTime(),
+      endMs:   new Date(s.endTime).getTime(),
+      schedule: s,
+    })),
+    ...pending.filter(e => e.date === dayStr).map(e => {
+      const [sh, sm] = e.startTime.split(':').map(Number);
+      const [eh, em] = e.endTime.split(':').map(Number);
+      const start = new Date(date); start.setHours(sh, sm, 0, 0);
+      const end   = new Date(date); end.setHours(eh, em, 0, 0);
+      return {
+        isPending: true as const,
+        id: `pending-${e.employeeId}-${e.startTime}`,
+        startMs: start.getTime(),
+        endMs:   end.getTime(),
+        entry: e,
+      };
+    }),
+  ].sort((a, b) => a.startMs - b.startMs);
+
+  const columns: UnifiedItem[][] = [];
+  for (const s of all) {
+    let placed = false;
+    for (const col of columns) {
+      const last = col[col.length - 1];
+      if (last.endMs <= s.startMs) { col.push(s); placed = true; break; }
+    }
+    if (!placed) columns.push([s]);
+  }
+
+  const result: PositionedUnified[] = [];
+  for (let ci = 0; ci < columns.length; ci++) {
+    for (const s of columns[ci]) {
+      const concurrent = columns.filter(col =>
+        col.some(x => x.startMs < s.endMs && x.endMs > s.startMs)
+      ).length;
+      result.push({ item: s, col: ci, totalCols: concurrent });
+    }
+  }
+  return result;
+}
+
+// PendingShiftBlock — purple dashed block for AI-proposed shifts, positioned side-by-side
+function PendingShiftBlock({ entry, hourPx, col, totalCols, isMobile }: {
   entry: AiScheduleEntry;
   hourPx: number;
+  col: number;
+  totalCols: number;
   isMobile?: boolean;
 }) {
   const [sh, sm] = entry.startTime.split(':').map(Number);
@@ -394,14 +450,21 @@ function PendingShiftBlock({ entry, hourPx, isMobile }: {
   const dayStartMin = DAY_START_HOUR * 60;
   const top    = ((startMin - dayStartMin) / 60) * hourPx;
   const height = Math.max(((endMin - startMin) / 60) * hourPx, isMobile ? 40 : 28);
+  const widthPct = 100 / totalCols;
+  const leftPct  = col * widthPct;
   const h12s = sh % 12 || 12, aps = sh >= 12 ? 'pm' : 'am';
   const h12e = eh % 12 || 12, ape = eh >= 12 ? 'pm' : 'am';
   const timeLabel = `${h12s}${sm > 0 ? ':' + String(sm).padStart(2,'0') : ''}${aps}–${h12e}${em > 0 ? ':' + String(em).padStart(2,'0') : ''}${ape}`;
   const showTime = height >= 40;
   return (
     <div
-      className="absolute left-px right-px rounded-md overflow-hidden border-2 border-dashed border-violet-400 dark:border-violet-500 bg-violet-100/70 dark:bg-violet-900/40 z-[5] pointer-events-none"
-      style={{ top: `${top}px`, height: `${height}px` }}
+      className="absolute rounded-md overflow-hidden border-2 border-dashed border-violet-400 dark:border-violet-500 bg-violet-100/70 dark:bg-violet-900/40 z-[5] pointer-events-none"
+      style={{
+        top: `${top}px`,
+        height: `${height}px`,
+        left: `calc(${leftPct}% + 1px)`,
+        width: `calc(${widthPct}% - 2px)`,
+      }}
       title={`Pending: ${entry.employeeName} · ${timeLabel}`}
     >
       <div className="px-1.5 pt-0.5 flex flex-col gap-0">
@@ -480,8 +543,11 @@ function DayColumn({
   showNowLine?: boolean;
   nowSentinelRef?: React.RefObject<HTMLDivElement>;
 }) {
-  const totalHeight = TOTAL_HOURS * hourPx;
-  const positioned  = useMemo(() => layoutOverlapping(shifts), [shifts]);
+  const totalHeight   = TOTAL_HOURS * hourPx;
+  const positionedAll = useMemo(
+    () => layoutUnified(shifts, pendingShifts ?? [], date),
+    [shifts, pendingShifts, date]
+  );
 
   const handleColumnClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -522,23 +588,30 @@ function DayColumn({
         <CurrentTimeLine hourPx={hourPx} nowSentinelRef={nowSentinelRef} />
       )}
 
-      {positioned.map(p => (
-        <ShiftBlock
-          key={p.schedule.id}
-          positioned={p}
-          user={users.find(u => u.id === p.schedule.userId)}
-          hourPx={hourPx}
-          onEdit={onEdit}
-          onDragStart={onDragStart}
-          dragState={dragState}
-          isSelected={selectedScheduleId === p.schedule.id}
-          isMobile={isMobile}
-        />
-      ))}
-      {/* Pending AI-proposed shifts — violet dashed overlay */}
-      {pendingShifts?.filter(e => e.date === formatLocalDate(date)).map((entry, i) => (
-        <PendingShiftBlock key={`pending-${i}`} entry={entry} hourPx={hourPx} isMobile={isMobile} />
-      ))}
+      {positionedAll.map(p =>
+        p.item.isPending ? (
+          <PendingShiftBlock
+            key={p.item.id}
+            entry={p.item.entry}
+            hourPx={hourPx}
+            col={p.col}
+            totalCols={p.totalCols}
+            isMobile={isMobile}
+          />
+        ) : (
+          <ShiftBlock
+            key={p.item.id}
+            positioned={{ schedule: p.item.schedule, col: p.col, totalCols: p.totalCols }}
+            user={users.find(u => u.id === p.item.schedule.userId)}
+            hourPx={hourPx}
+            onEdit={onEdit}
+            onDragStart={onDragStart}
+            dragState={dragState}
+            isSelected={selectedScheduleId === p.item.schedule.id}
+            isMobile={isMobile}
+          />
+        )
+      )}
     </div>
   );
 }
