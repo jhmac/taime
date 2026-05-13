@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
-import { insertScheduleSchema, users, messageThreads, threadParticipants, threadMessages, userAvailability, aiSchedulingSettings, scoreHistory, schedules as schedulesTable } from "@shared/schema";
-import { eq, and, inArray, gte, lte, desc } from "drizzle-orm";
+import { insertScheduleSchema, users, messageThreads, threadParticipants, threadMessages, userAvailability, aiSchedulingSettings, scoreHistory, schedules as schedulesTable, payrollPeriods } from "@shared/schema";
+import { eq, and, inArray, gte, lte, lt, gt, desc, sql } from "drizzle-orm";
 import { db } from "../db";
 import { notificationService } from "../services/notificationService";
 import { claudeService } from "../services/claudeService";
@@ -140,6 +140,7 @@ export function registerScheduleRoutes(
         });
       }
 
+      console.info(`[schedules PATCH] id=${req.params.id} updatedBy=${userId} newUserId=${updated.userId} start=${updated.startTime?.toISOString()} end=${updated.endTime?.toISOString()}`);
       res.json(updated);
     } catch (error) {
       console.error("Error updating schedule:", error);
@@ -770,6 +771,116 @@ export function registerScheduleRoutes(
     } catch (error) {
       console.error('Error in auto-assign-day:', error);
       res.status(500).json({ message: 'Failed to auto-assign shifts' });
+    }
+  });
+
+  // GET /api/schedules/hours-summary?userId=&date= — returns scheduled hours for day/week/pay-period
+  app.get('/api/schedules/hours-summary', isAuthenticated, async (req: any, res) => {
+    try {
+      const requestingUserId: string = req.user.id;
+      const targetUserId = (req.query.userId as string) || requestingUserId;
+      const dateParam = req.query.date as string;
+
+      // Authorization: querying another user's hours requires manager-level permission
+      // in the same store as the target user.
+      if (targetUserId !== requestingUserId) {
+        const { tryResolveStoreIdForUser } = await import('../services/storeResolver');
+        const { resolveAnyPermission } = await import('../services/permissionResolver');
+        const [isManager, requesterStoreId, targetStoreId] = await Promise.all([
+          resolveAnyPermission(requestingUserId, ['admin.manage_all', 'schedule.view_all', 'schedule.create'], storage),
+          tryResolveStoreIdForUser(requestingUserId),
+          tryResolveStoreIdForUser(targetUserId),
+        ]);
+        if (!isManager || !requesterStoreId || !targetStoreId || requesterStoreId !== targetStoreId) {
+          return res.status(403).json({ message: "Not authorized to view that employee's hours." });
+        }
+      }
+      if (!dateParam || !/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+        return res.status(400).json({ message: "date must be YYYY-MM-DD" });
+      }
+
+      // Compute Mon–Sun week window (Mon = day 1) for the given date
+      const dateObj = new Date(dateParam + 'T00:00:00');
+      const dayStart = new Date(dateParam + 'T00:00:00');
+      const dayEnd   = new Date(dateParam + 'T23:59:59.999');
+
+      // Monday-anchored week: back up to Monday, forward to Sunday
+      const dowLocal = dateObj.getDay(); // 0=Sun,1=Mon…6=Sat
+      const daysFromMon = dowLocal === 0 ? 6 : dowLocal - 1;
+      const monday = new Date(dateObj);
+      monday.setDate(dateObj.getDate() - daysFromMon);
+      monday.setHours(0, 0, 0, 0);
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      sunday.setHours(23, 59, 59, 999);
+
+      // Use true interval-overlap logic: a shift overlaps a window iff
+      //   shift.startTime < windowEnd && shift.endTime > windowStart
+      // This correctly captures overnight shifts that cross midnight.
+      const toHours = (shifts: { startTime: Date; endTime: Date; }[], windowStart: Date, windowEnd: Date) =>
+        shifts.reduce((sum, s) => {
+          const sStart = Math.max(new Date(s.startTime).getTime(), windowStart.getTime());
+          const sEnd   = Math.min(new Date(s.endTime).getTime(),   windowEnd.getTime());
+          return sum + Math.max(0, (sEnd - sStart) / 3600000);
+        }, 0);
+
+      const [dayShifts, weekShifts] = await Promise.all([
+        db.select({ startTime: schedulesTable.startTime, endTime: schedulesTable.endTime })
+          .from(schedulesTable)
+          .where(and(
+            eq(schedulesTable.userId, targetUserId),
+            lt(schedulesTable.startTime, dayEnd),
+            gt(schedulesTable.endTime, dayStart),
+          )),
+        db.select({ startTime: schedulesTable.startTime, endTime: schedulesTable.endTime })
+          .from(schedulesTable)
+          .where(and(
+            eq(schedulesTable.userId, targetUserId),
+            lt(schedulesTable.startTime, sunday),
+            gt(schedulesTable.endTime, monday),
+          )),
+      ]);
+
+      const dayHours = Math.round(toHours(dayShifts, dayStart, dayEnd) * 10) / 10;
+      const weekHours = Math.round(toHours(weekShifts, monday, sunday) * 10) / 10;
+
+      // Fetch the employee's target weekly hours for OT threshold context
+      let targetWeeklyHours: number | null = null;
+      try {
+        const [uRow] = await db.select({ targetWeeklyHours: users.targetWeeklyHours })
+          .from(users).where(eq(users.id, targetUserId)).limit(1);
+        if (uRow?.targetWeeklyHours != null) {
+          targetWeeklyHours = parseFloat(uRow.targetWeeklyHours as string);
+        }
+      } catch { /* non-fatal */ }
+
+      let payPeriodHours = 0;
+      try {
+        const [period] = await db.select()
+          .from(payrollPeriods)
+          .where(and(
+            lte(payrollPeriods.startDate, new Date(dateParam)),
+            gte(payrollPeriods.endDate, new Date(dateParam)),
+          ))
+          .limit(1);
+        if (period) {
+          const pStart = new Date(period.startDate); pStart.setHours(0, 0, 0, 0);
+          const pEnd   = new Date(period.endDate);   pEnd.setHours(23, 59, 59, 999);
+          const periodShifts = await db.select({ startTime: schedulesTable.startTime, endTime: schedulesTable.endTime })
+            .from(schedulesTable)
+            .where(and(
+              eq(schedulesTable.userId, targetUserId),
+              lt(schedulesTable.startTime, pEnd),
+              gt(schedulesTable.endTime, pStart),
+            ));
+          payPeriodHours = Math.round(toHours(periodShifts, pStart, pEnd) * 10) / 10;
+        }
+      } catch { /* payPeriod is optional */ }
+
+      res.json({ dayHours, weekHours, payPeriodHours, targetWeeklyHours });
+    } catch (error) {
+      console.error('Error in hours-summary:', error);
+      res.status(500).json({ message: 'Failed to compute hours summary' });
     }
   });
 }

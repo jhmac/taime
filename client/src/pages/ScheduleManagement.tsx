@@ -22,7 +22,7 @@ import {
   ChevronLeft, ChevronRight, Plus, Trash2, Sparkles, Loader2,
   Check, X, Calendar, Clock, StickyNote, Bell, Wand2, Users,
   ChevronDown, ChevronUp, CalendarDays, UserCog, PanelRightOpen, PanelRightClose,
-  LayoutGrid, CalendarRange, ShieldCheck, Pencil
+  LayoutGrid, CalendarRange, ShieldCheck, Pencil, Store, AlertCircle, MonitorCheck
 } from "lucide-react";
 import {
   applyAiEntryEdit,
@@ -694,6 +694,10 @@ export default function ScheduleManagement() {
   }, [selectedWeek]);
   const [showSuggestedReview, setShowSuggestedReview] = useState(false);
   const [suggestedData, setSuggestedData] = useState<any>(null);
+  const [weekGenProgress, setWeekGenProgress] = useState<{ current: number; total: number } | null>(null);
+  const [availApprovalOpen, setAvailApprovalOpen] = useState(true);
+  const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
+  const [liveRegistersOpen, setLiveRegistersOpen] = useState(false);
 
   const { data: userPermissions = [], isLoading: permissionsLoading } = useQuery<Permission[]>({
     queryKey: ["/api/auth/permissions"],
@@ -781,6 +785,35 @@ export default function ScheduleManagement() {
   const { data: connectedShops = [] } = useQuery<any[]>({
     queryKey: ["/api/shopify/shops"],
   });
+
+  const { data: pendingApprovals = [] } = useQuery<any[]>({
+    queryKey: ["/api/availability/pending-approvals"],
+    queryFn: async () => {
+      const res = await fetch('/api/availability/pending-approvals', { credentials: 'include' });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: isAdmin,
+    refetchInterval: 60_000,
+  });
+
+  const {
+    data: liveRegistersData,
+    isError: liveRegistersError,
+    dataUpdatedAt: liveRegistersUpdatedAt,
+  } = useQuery<{ connected: boolean; registers: any[] }>({
+    queryKey: ["/api/shopify/registers/live"],
+    queryFn: async () => {
+      const res = await fetch('/api/shopify/registers/live', { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch registers');
+      return res.json();
+    },
+    enabled: isAdmin && liveRegistersOpen,
+    refetchInterval: liveRegistersOpen ? 60_000 : false,
+    retry: 1,
+  });
+  const liveRegisters = liveRegistersData?.registers ?? [];
+  const liveRegistersConnected = liveRegistersData?.connected ?? true;
 
   const { data: dayNotes = [] } = useQuery<DayNote[]>({
     queryKey: ["/api/day-notes", startDateParam, endDateParam],
@@ -939,7 +972,13 @@ export default function ScheduleManagement() {
           : null,
         cacheKeyMatchesUpdate: !!patchedRow,
       });
-      invalidateScheduleSurfaces();
+      // Only invalidate non-grid surfaces. The grid cache is already correct
+      // via setQueryData above. Broadcasting a full ["/api/schedules"] invalidation
+      // triggers a background refetch that can race and overwrite the optimistic patch
+      // with stale server data (Bug #1 save-revert). Suggest and today-availability
+      // still need a fresh pull since they depend on schedule counts.
+      queryClient.invalidateQueries({ queryKey: ["/api/schedules/suggest"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/schedules/today-availability"] });
       const afterInvalidate = queryClient.getQueryData<Schedule[]>(cacheKey);
       dlog("updateScheduleMutation/cacheAfterInvalidate", {
         cacheKey,
@@ -1058,17 +1097,76 @@ export default function ScheduleManagement() {
 
   const generateMutation = useMutation({
     mutationFn: async (dates: { startDate: string; endDate: string }) => {
-      return apiRequest('POST', '/api/ai-scheduling/generate', {
-        ...dates,
-        shopDomain: activeShop?.shopDomain,
-      });
+      const start = new Date(dates.startDate + 'T00:00:00');
+      const end   = new Date(dates.endDate + 'T00:00:00');
+      const days: string[] = [];
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        days.push(d.toISOString().split('T')[0]);
+      }
+      const allShifts: any[] = [];
+      let generatedCount = 0;
+      let fromCacheCount = 0;
+      let failedCount = 0;
+      for (let i = 0; i < days.length; i++) {
+        setWeekGenProgress({ current: i + 1, total: days.length });
+        const ctrl = new AbortController();
+        const timeout = setTimeout(() => ctrl.abort(), 30_000);
+        try {
+          const res = await fetch('/api/schedules/suggest', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ date: days[i] }),
+            signal: ctrl.signal,
+          });
+          if (!res.ok) { failedCount++; continue; }
+          const data = await res.json();
+          if (data?._fromCache) fromCacheCount++; else generatedCount++;
+          if (data?.proposedShifts) {
+            for (const s of data.proposedShifts) {
+              allShifts.push({
+                employeeId: s.employeeId,
+                employeeName: s.employeeName,
+                date: days[i],
+                startTime: s.startTime,
+                endTime: s.endTime,
+                shiftBlock: s.shiftBlock,
+                rationale: s.rationale,
+                profileImageUrl: s.profileImageUrl ?? null,
+              });
+            }
+          }
+        } catch (err: any) {
+          if (err?.name === 'AbortError') {
+            failedCount++;
+          } else {
+            failedCount++;
+          }
+        } finally {
+          clearTimeout(timeout);
+        }
+      }
+      setWeekGenProgress(null);
+      const parts: string[] = [];
+      if (generatedCount > 0) parts.push(`${generatedCount} generated`);
+      if (fromCacheCount > 0) parts.push(`${fromCacheCount} from cache`);
+      if (failedCount > 0) parts.push(`${failedCount} failed`);
+      const summary = `${allShifts.length} shift${allShifts.length !== 1 ? 's' : ''} proposed for the week${parts.length ? ` (${parts.join(', ')})` : ''}.`;
+      return {
+        generatedSchedule: allShifts,
+        summary,
+        days: days.map(d => ({ date: d })),
+        success: true,
+        warnings: failedCount > 0 ? [`${failedCount} day(s) could not be generated.`] : [],
+        settings: null,
+        salesDataAvailable: false,
+      } as GenerateResult;
     },
-    onSuccess: async (response: any, variables) => {
-      const data = await response.json();
+    onSuccess: (data: GenerateResult) => {
       setAiResult(data);
       setAiResultRange({
-        startDate: variables.startDate.split('T')[0],
-        endDate: variables.endDate.split('T')[0],
+        startDate: weekDates[0].toISOString().split('T')[0],
+        endDate: weekDates[6].toISOString().split('T')[0],
       });
       setRemovedEntries(new Set());
       setReviewResult(null);
@@ -1076,6 +1174,7 @@ export default function ScheduleManagement() {
       toast({ title: "Schedule Generated", description: data.summary || "AI schedule ready for review." });
     },
     onError: (error: any) => {
+      setWeekGenProgress(null);
       toast({ title: "Generation Failed", description: error.message || "Failed to generate.", variant: "destructive" });
     },
   });
@@ -1102,16 +1201,23 @@ export default function ScheduleManagement() {
   });
 
   const suggestMutation = useMutation({
-    mutationFn: async (date: string) => {
-      // Check for a previously saved schedule first — avoids unnecessary AI calls
-      try {
-        const savedRes = await fetch(`/api/schedules/suggest?date=${date}`, { credentials: 'include' });
-        if (savedRes.ok) {
-          const saved = await savedRes.json();
-          if (saved && saved.proposedShifts) return { ...saved, _fromCache: true };
-        }
-      } catch { /* fall through to generate */ }
-      const res = await apiRequest('POST', '/api/schedules/suggest', { date });
+    mutationFn: async ({ date, force = false }: { date: string; force?: boolean }) => {
+      // In-memory guard: if we already have suggestions for this exact date (and not forcing),
+      // return them immediately without hitting the server.
+      if (!force && suggestedData && (suggestedData as any).date === date && (suggestedData as any).proposedShifts) {
+        return { ...(suggestedData as any), _fromCache: true };
+      }
+      // Otherwise check the server cache (unless forcing a regenerate)
+      if (!force) {
+        try {
+          const savedRes = await fetch(`/api/schedules/suggest?date=${date}`, { credentials: 'include' });
+          if (savedRes.ok) {
+            const saved = await savedRes.json();
+            if (saved && saved.proposedShifts) return { ...saved, _fromCache: true };
+          }
+        } catch { /* fall through to generate */ }
+      }
+      const res = await apiRequest('POST', '/api/schedules/suggest', { date, force });
       return res.json();
     },
     onSuccess: (data: any) => {
@@ -1153,6 +1259,21 @@ export default function ScheduleManagement() {
   const activeAiEntriesCount = aiResult
     ? aiResult.generatedSchedule.length - removedEntries.size
     : 0;
+
+  const reviewAvailMutation = useMutation({
+    mutationFn: async ({ id, action, note }: { id: string; action: 'approve' | 'reject'; note?: string }) => {
+      const res = await apiRequest('PATCH', `/api/availability/overrides/${id}/review`, { action, note });
+      return res.json();
+    },
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/availability/pending-approvals"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/availability/calendar/team"] });
+      toast({ title: vars.action === 'approve' ? "Request approved" : "Request rejected" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to review request.", variant: "destructive" });
+    },
+  });
 
   const discardAiResult = () => {
     setAiResult(null);
@@ -1232,7 +1353,13 @@ export default function ScheduleManagement() {
     return m === 0 ? `${h12}${ampm}` : `${h12}:${m.toString().padStart(2, '0')}${ampm}`;
   };
 
-  const activeEmployees = users.filter(user => user.isActive !== false);
+  const activeEmployees = users
+    .filter(user => user.isActive !== false)
+    .sort((a, b) => {
+      const nameA = `${a.firstName ?? ''} ${a.lastName ?? ''}`.trim().toLowerCase();
+      const nameB = `${b.firstName ?? ''} ${b.lastName ?? ''}`.trim().toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
 
   // Employees filtered for the Create Shift modal (respects the availability toggle)
   // Uses teamCalendar (new template+overrides system). "No entry" = available by default.
@@ -1638,7 +1765,7 @@ export default function ScheduleManagement() {
               variant="outline"
               size="sm"
               className="gap-1.5 text-xs border-violet-300 text-violet-700 dark:border-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-900/20 min-h-[44px] sm:min-h-0"
-              onClick={() => suggestMutation.mutate(todayDateStr)}
+              onClick={() => suggestMutation.mutate({ date: todayDateStr })}
               disabled={suggestMutation.isPending}
               title="AI Auto-Schedule"
             >
@@ -1661,11 +1788,18 @@ export default function ScheduleManagement() {
               data-testid="button-generate-week"
             >
               {generateMutation.isPending ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  {weekGenProgress && (
+                    <span className="hidden sm:inline text-xs tabular-nums">
+                      {weekGenProgress.current}/{weekGenProgress.total}
+                    </span>
+                  )}
+                </>
               ) : (
                 <Wand2 className="h-3.5 w-3.5" />
               )}
-              <span className="hidden sm:inline">Generate Week</span>
+              {!generateMutation.isPending && <span className="hidden sm:inline">Generate Week</span>}
             </Button>
 
             {/* Notify Team — label hidden on mobile */}
@@ -1703,7 +1837,7 @@ export default function ScheduleManagement() {
               date={todayDateStr}
               onQuickAdd={handleQuickAdd}
               onGapClick={handleGapClick}
-              onAIAutoSchedule={() => suggestMutation.mutate(todayDateStr)}
+              onAIAutoSchedule={() => suggestMutation.mutate({ date: todayDateStr })}
             />
           </div>
         )}
@@ -2061,6 +2195,153 @@ export default function ScheduleManagement() {
             </div>
           </div>
         )}
+        {/* ── Availability Approval Panel ─────────────────────────────── */}
+        {isAdmin && pendingApprovals.length > 0 && (
+          <div className="border-b bg-amber-50/60 dark:bg-amber-950/20">
+            <button
+              className="w-full flex items-center justify-between px-4 py-2 text-left"
+              onClick={() => setAvailApprovalOpen(v => !v)}
+            >
+              <div className="flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span className="text-sm font-medium text-amber-900 dark:text-amber-100">
+                  {pendingApprovals.length} Availability Request{pendingApprovals.length !== 1 ? 's' : ''} Pending
+                </span>
+              </div>
+              {availApprovalOpen ? <ChevronUp className="h-4 w-4 text-amber-700" /> : <ChevronDown className="h-4 w-4 text-amber-700" />}
+            </button>
+            {availApprovalOpen && (
+              <div className="px-4 pb-3 space-y-1.5">
+                {pendingApprovals.map((override: any) => {
+                  const empName = [override.firstName, override.lastName].filter(Boolean).join(' ') || override.email || 'Employee';
+                  const dateLabel = new Date(override.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                  const timeLabel = override.unavailable ? 'Unavailable' : `${override.startTime}–${override.endTime}`;
+                  return (
+                    <div key={override.id} className="bg-white/60 dark:bg-amber-950/40 rounded-lg px-3 py-2 space-y-1.5">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <span className="text-xs font-semibold text-foreground">{empName}</span>
+                          <span className="text-xs text-muted-foreground ml-2">{dateLabel}</span>
+                          <span className={`text-xs ml-2 font-medium ${override.unavailable ? 'text-red-600 dark:text-red-400' : 'text-emerald-700 dark:text-emerald-400'}`}>{timeLabel}</span>
+                        </div>
+                        <div className="flex gap-1.5 shrink-0">
+                          <Button
+                            size="sm"
+                            className="h-7 px-2.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                            disabled={reviewAvailMutation.isPending}
+                            onClick={() => {
+                              reviewAvailMutation.mutate({ id: override.id, action: 'approve', note: reviewNotes[override.id] || undefined });
+                              setReviewNotes(n => { const copy = { ...n }; delete copy[override.id]; return copy; });
+                            }}
+                          >
+                            <Check className="h-3 w-3 mr-1" />Approve
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2.5 text-xs text-red-600 border-red-300 hover:bg-red-50 dark:hover:bg-red-950/20"
+                            disabled={reviewAvailMutation.isPending}
+                            onClick={() => {
+                              reviewAvailMutation.mutate({ id: override.id, action: 'reject', note: reviewNotes[override.id] || undefined });
+                              setReviewNotes(n => { const copy = { ...n }; delete copy[override.id]; return copy; });
+                            }}
+                          >
+                            <X className="h-3 w-3 mr-1" />Reject
+                          </Button>
+                        </div>
+                      </div>
+                      <input
+                        type="text"
+                        placeholder="Optional note to employee…"
+                        value={reviewNotes[override.id] ?? ''}
+                        onChange={e => setReviewNotes(n => ({ ...n, [override.id]: e.target.value }))}
+                        className="w-full text-[11px] px-2 py-1 rounded border border-amber-200 dark:border-amber-800 bg-white/80 dark:bg-amber-950/60 placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Live Registers Panel ─────────────────────────────────────── */}
+        {isAdmin && (
+          <div className="border-b">
+            <button
+              className="w-full flex items-center justify-between px-4 py-2 text-left hover:bg-muted/30 transition-colors"
+              onClick={() => setLiveRegistersOpen(v => !v)}
+            >
+              <div className="flex items-center gap-2">
+                <Store className="h-4 w-4 text-muted-foreground shrink-0" />
+                <span className="text-xs font-medium text-muted-foreground">Live Registers</span>
+                {liveRegisters.length > 0 && (
+                  <span className="text-xs bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 px-1.5 rounded-full">
+                    {liveRegisters.length} open
+                  </span>
+                )}
+              </div>
+              {liveRegistersOpen ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
+            </button>
+            {liveRegistersOpen && (
+              <div className="px-4 pb-3">
+                {!liveRegistersConnected ? (
+                  <div className="flex items-start gap-2 rounded-md bg-muted/40 border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-500" />
+                    <span>
+                      Shopify POS not connected.{" "}
+                      <a href="/settings" className="underline text-primary hover:text-primary/80">Connect in Settings</a>{" "}
+                      to view live register sessions.
+                    </span>
+                  </div>
+                ) : liveRegistersError && liveRegisters.length === 0 ? (
+                  <p className="text-xs text-red-500 dark:text-red-400 italic">Failed to load register data. Check Shopify connection.</p>
+                ) : liveRegisters.length === 0 ? (
+                  <p className="text-xs text-muted-foreground italic">No register sessions found for today.</p>
+                ) : (
+                  <>
+                    {liveRegistersError && (
+                      <div className="text-[10px] text-amber-600 dark:text-amber-400 mb-1.5 flex items-center gap-1">
+                        <AlertCircle className="h-3 w-3 shrink-0" />
+                        Showing last known data — live refresh failed.
+                        {liveRegistersUpdatedAt > 0 && (
+                          <span className="ml-1">Updated {new Date(liveRegistersUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        )}
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-1">
+                      {liveRegisters.map((reg: any) => (
+                        <div key={reg.shopifySessionId} className={cn("rounded-lg px-3 py-2", liveRegistersError ? "bg-amber-50/50 dark:bg-amber-950/20" : "bg-muted/40")}>
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <MonitorCheck className={cn("h-3 w-3", liveRegistersError ? "text-amber-500" : "text-emerald-600")} />
+                            <span className="text-xs font-semibold truncate">{reg.registerName}</span>
+                          </div>
+                          <div className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
+                            <span className={reg.status === 'open' ? "text-emerald-600 dark:text-emerald-400 font-medium" : "capitalize"}>
+                              {reg.status === 'open' ? 'Open' : (reg.status ?? 'Unknown')}
+                            </span>
+                            {reg.cashSales != null && (
+                              <span>Cash: <span className="text-foreground">${parseFloat(reg.cashSales).toFixed(2)}</span></span>
+                            )}
+                            {reg.totalSales != null && (
+                              <span>Total: <span className="text-foreground">${parseFloat(reg.totalSales).toFixed(2)}</span></span>
+                            )}
+                            {reg.syncedAt && (
+                              <span className="text-muted-foreground/70">
+                                Synced {new Date(reg.syncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         <table className="w-full border-collapse min-w-[480px] md:min-w-[900px]">
           <thead>
             <tr className="border-b">
@@ -2192,8 +2473,22 @@ export default function ScheduleManagement() {
                               <span className="text-xs font-semibold truncate leading-tight">{name}</span>
                               {md && <RosterScoreBadge score={md.compositeScore} />}
                             </div>
-                            <div className="text-[10px] text-muted-foreground truncate">
-                              {md?.roleName || 'Employee'}
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[10px] text-muted-foreground truncate">{md?.roleName || 'Employee'}</span>
+                              {stats.hours > 0 && (() => {
+                                const empTarget = emp.targetWeeklyHours ? parseFloat(emp.targetWeeklyHours as string) : 40;
+                                const isOt = stats.hours >= empTarget;
+                                return (
+                                  <span className={cn(
+                                    "text-[9px] font-medium px-1 rounded",
+                                    isOt
+                                      ? "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300"
+                                      : "bg-muted/60 text-muted-foreground"
+                                  )}>
+                                    {stats.hours.toFixed(1)}h
+                                  </span>
+                                );
+                              })()}
                             </div>
                             {availLabel ? (
                               <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
@@ -2448,7 +2743,7 @@ export default function ScheduleManagement() {
               date={todayDateStr}
               onQuickAdd={(member, start, end) => { setShowMobileSheet(false); handleQuickAdd(member, start, end); }}
               onGapClick={(start, end, top) => { setShowMobileSheet(false); handleGapClick(start, end, top); }}
-              onAIAutoSchedule={() => { setShowMobileSheet(false); suggestMutation.mutate(todayDateStr); }}
+              onAIAutoSchedule={() => { setShowMobileSheet(false); suggestMutation.mutate({ date: todayDateStr }); }}
             />
           </div>
         </SheetContent>
@@ -2469,12 +2764,10 @@ export default function ScheduleManagement() {
           }}
           onRegenerate={() => {
             const regenerateDate = (suggestedData as any)?.date || todayDateStr;
-            clearSuggestCache(regenerateDate).then(() => {
-              setShowSuggestedReview(false);
-              setSuggestedData(null);
-              setShowSuggestedReview(true);
-              suggestMutation.mutate(regenerateDate);
-            });
+            setSuggestedData(null);
+            setShowSuggestedReview(true);
+            // Use force: true so the POST endpoint skips the DB cache and calls AI fresh
+            suggestMutation.mutate({ date: regenerateDate, force: true });
           }}
           onEditShift={undefined}
         />

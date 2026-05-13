@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
-import { aiSchedulingSettings, aiSchedulingRules, specialCircumstances, shopifyDailySales, shopifyOrders, users, userAvailability, availabilityTemplates, schedules, shops, userShops, roles, workPatternTemplates, userWorkPatterns, clockEvents, workLocations, aiSuggestedSchedules } from "@shared/schema";
+import { aiSchedulingSettings, aiSchedulingRules, specialCircumstances, shopifyDailySales, shopifyOrders, users, userAvailability, availabilityTemplates, schedules, shops, userShops, roles, workPatternTemplates, userWorkPatterns, clockEvents, workLocations, aiSuggestedSchedules, shopifyRegisterSessions } from "@shared/schema";
 import { eq, and, gte, lte, lt, gt, desc, inArray, sql, count, isNull, or } from "drizzle-orm";
 import { db } from "../db";
 import { anthropic, withAiContext } from "../lib/aiClients";
@@ -3214,7 +3214,8 @@ Required format:
           .limit(1);
         if (cachedRows.length > 0) {
           logger.info({ storeId, dateParam }, "[suggest] short-circuit — returning cached payload");
-          return res.json(cachedRows[0].scheduleData);
+          const cachedPayload = cachedRows[0].scheduleData as Record<string, unknown>;
+          return res.json({ ...cachedPayload, _fromCache: true });
         }
       }
 
@@ -4494,6 +4495,51 @@ Return your findings as JSON only — no markdown, no text outside JSON:
     } catch (error) {
       logger.error({ error: String(error) }, "[fairness-metrics] error");
       res.status(500).json({ message: "Failed to fetch fairness metrics" });
+    }
+  });
+
+  // GET /api/shopify/registers/live — today's Shopify POS register sessions for this store
+  // Returns { connected: false } when no Shopify shop is linked to the store.
+  // Returns { connected: true, registers: [...] } when connected.
+  app.get("/api/shopify/registers/live", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const isAdmin = await resolveAnyPermission(userId, ['admin.manage_all', 'schedule.view_all'], storage);
+      if (!isAdmin) return res.status(403).json({ message: "Manager access required" });
+
+      const storeId = await tryResolveStoreIdForUser(userId);
+      if (!storeId) return res.json({ connected: false, registers: [] });
+
+      // Check whether the store has a Shopify shop linked
+      const shopLink = await db.select({ shopDomain: userShops.shopDomain })
+        .from(userShops).where(eq(userShops.userId, userId)).limit(1);
+      if (!shopLink[0]?.shopDomain) {
+        return res.json({ connected: false, registers: [] });
+      }
+
+      // Use today's date in the store's local timezone if available, otherwise UTC
+      const todayUtc = new Date().toISOString().slice(0, 10);
+      let todayDate = todayUtc;
+      try {
+        const [locRow] = await db.select({ timezone: workLocations.timezone })
+          .from(workLocations).where(eq(workLocations.id, storeId)).limit(1);
+        if (locRow?.timezone) {
+          todayDate = new Date().toLocaleDateString('en-CA', { timeZone: locRow.timezone });
+        }
+      } catch { /* use UTC fallback */ }
+
+      const registers = await db.select()
+        .from(shopifyRegisterSessions)
+        .where(and(
+          eq(shopifyRegisterSessions.storeId, storeId),
+          eq(shopifyRegisterSessions.sessionDate, todayDate),
+        ))
+        .orderBy(shopifyRegisterSessions.registerName);
+
+      res.json({ connected: true, registers });
+    } catch (error) {
+      logger.error({ error: String(error) }, "[registers/live] error");
+      res.status(500).json({ message: "Failed to fetch live registers" });
     }
   });
 }

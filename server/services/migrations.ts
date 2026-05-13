@@ -497,6 +497,20 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "company_settings",
       sql: `ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS late_clock_in_alert_threshold integer DEFAULT 2`,
     },
+    // Task #730 — Availability approval workflow: status and approval_note on overrides
+    {
+      table: "user_availability_overrides",
+      sql: `ALTER TABLE user_availability_overrides ADD COLUMN IF NOT EXISTS status varchar DEFAULT 'approved'`,
+    },
+    {
+      table: "user_availability_overrides",
+      sql: `ALTER TABLE user_availability_overrides ADD COLUMN IF NOT EXISTS approval_note text`,
+    },
+    // Task #730 — explicit submitter tracking (who requested the change)
+    {
+      table: "user_availability_overrides",
+      sql: `ALTER TABLE user_availability_overrides ADD COLUMN IF NOT EXISTS submitted_by_employee_id varchar REFERENCES users(id) ON DELETE SET NULL`,
+    },
   ];
 
   // Task #677 — Create break_events table for individual break tracking

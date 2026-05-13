@@ -4,6 +4,9 @@ import { notificationService } from "../services/notificationService";
 import { sendAvailabilityUpdateEmail, sendAvailabilityOverrideEmail, resolveAppUrl } from "../services/emailService";
 import { getUserIdsWithPermission, getAllStoreUserIds } from "../lib/permissionUtils";
 import { tryResolveStoreIdForUser } from "../services/storeResolver";
+import { db } from "../db";
+import { userAvailabilityOverrides, users } from "@shared/schema";
+import { eq, and, inArray } from "drizzle-orm";
 
 export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.post('/api/availability', isAuthenticated, async (req: any, res) => {
@@ -259,7 +262,22 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
         unavailable: isUnavailable,
         setByManagerId: isManagerOverride ? requestingUserId : null,
       });
-      res.json(result);
+
+      // Task #730: manager-originated writes (including self-edits) are auto-approved.
+      // Only non-manager employee submissions require approval (status='pending').
+      const newStatus = isManagerOrAbove ? 'approved' : 'pending';
+      // submittedByEmployeeId tracks the employee who requested the change (null for manager-initiated).
+      const submittedByEmployeeId = isManagerOrAbove ? null : userId;
+      try {
+        await db.update(userAvailabilityOverrides)
+          .set({ status: newStatus, ...(submittedByEmployeeId ? { submittedByEmployeeId } : {}) })
+          .where(and(
+            eq(userAvailabilityOverrides.userId, userId),
+            eq(userAvailabilityOverrides.date, date),
+          ));
+      } catch { /* non-fatal; status defaults to 'approved' on old rows */ }
+
+      res.json({ ...result, status: newStatus });
 
       if (isManagerOverride) {
         const requestHost = req.headers["host"] as string | undefined;
@@ -434,9 +452,12 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
             continue;
           }
 
-          // Date-specific override
+          // Date-specific override — skip pending/rejected overrides (fall through to template)
+          // Only 'approved' (or legacy null status) overrides are authoritative.
           const override = overridesByUserDate[`${uid}:${dateStr}`];
-          if (override) {
+          const overrideStatus = (override as any)?.status;
+          const overrideIsActive = override && (overrideStatus == null || overrideStatus === 'approved');
+          if (overrideIsActive) {
             entries.push({
               userId: uid,
               available: !override.unavailable,
@@ -804,6 +825,115 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
     } catch (error) {
       console.error("Error deleting time-off request:", error);
       res.status(500).json({ message: "Failed to delete time-off request" });
+    }
+  });
+
+  // GET /api/availability/pending-approvals — manager-only: list overrides awaiting approval
+  app.get('/api/availability/pending-approvals', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const roleName = req.user?.role?.name;
+      const legacyRoles = ['owner', 'admin', 'manager', 'assistant_manager'];
+      let hasPermission = legacyRoles.includes(roleName);
+      if (!hasPermission) {
+        const schedPerms = ['schedule.view_all', 'schedule.create', 'schedule.edit_all', 'admin.manage_all'];
+        const { getUserIdsWithPermission } = await import('../lib/permissionUtils');
+        for (const perm of schedPerms) {
+          const ids = await getUserIdsWithPermission(perm);
+          if (ids.includes(userId)) { hasPermission = true; break; }
+        }
+      }
+      if (!hasPermission) return res.status(403).json({ message: "Manager access required" });
+
+      const storeId = await tryResolveStoreIdForUser(userId);
+      if (!storeId) return res.json([]);
+
+      const storeUserIds = await getAllStoreUserIds(storeId);
+      if (storeUserIds.length === 0) return res.json([]);
+
+      const pending = await db.select({
+        id: userAvailabilityOverrides.id,
+        userId: userAvailabilityOverrides.userId,
+        date: userAvailabilityOverrides.date,
+        startTime: userAvailabilityOverrides.startTime,
+        endTime: userAvailabilityOverrides.endTime,
+        unavailable: userAvailabilityOverrides.unavailable,
+        status: userAvailabilityOverrides.status,
+        approvalNote: userAvailabilityOverrides.approvalNote,
+        createdAt: userAvailabilityOverrides.createdAt,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        email: users.email,
+      })
+        .from(userAvailabilityOverrides)
+        .leftJoin(users, eq(users.id, userAvailabilityOverrides.userId))
+        .where(and(
+          inArray(userAvailabilityOverrides.userId, storeUserIds),
+          eq(userAvailabilityOverrides.status, 'pending'),
+        ))
+        .orderBy(userAvailabilityOverrides.createdAt);
+
+      res.json(pending);
+    } catch (error) {
+      console.error("Error fetching pending approvals:", error);
+      res.status(500).json({ message: "Failed to fetch pending approvals" });
+    }
+  });
+
+  // PATCH /api/availability/overrides/:id/review — manager approves or rejects an override
+  app.patch('/api/availability/overrides/:id/review', isAuthenticated, async (req: any, res) => {
+    try {
+      const managerId = req.user.id;
+      const roleName = req.user?.role?.name;
+      const legacyRoles = ['owner', 'admin', 'manager', 'assistant_manager'];
+      let hasPermission = legacyRoles.includes(roleName);
+      if (!hasPermission) {
+        const schedPerms = ['schedule.view_all', 'schedule.create', 'schedule.edit_all', 'admin.manage_all'];
+        const { getUserIdsWithPermission } = await import('../lib/permissionUtils');
+        for (const perm of schedPerms) {
+          const ids = await getUserIdsWithPermission(perm);
+          if (ids.includes(managerId)) { hasPermission = true; break; }
+        }
+      }
+      if (!hasPermission) return res.status(403).json({ message: "Manager access required" });
+
+      const { id } = req.params;
+      // Accept either { action: 'approve'|'reject', note? } (canonical) or legacy { status, approvalNote }
+      const { action, note, status: legacyStatus, approvalNote: legacyNote } = req.body;
+      const resolvedStatus = action
+        ? (action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : null)
+        : legacyStatus;
+      const resolvedNote = note ?? legacyNote ?? null;
+      if (!['approved', 'rejected'].includes(resolvedStatus)) {
+        return res.status(400).json({ message: "action must be 'approve' or 'reject'" });
+      }
+      const status = resolvedStatus as 'approved' | 'rejected';
+      const approvalNote = resolvedNote;
+
+      const [existing] = await db.select().from(userAvailabilityOverrides)
+        .where(eq(userAvailabilityOverrides.id, id)).limit(1);
+      if (!existing) return res.status(404).json({ message: "Override not found" });
+
+      const managerStoreId = await tryResolveStoreIdForUser(managerId);
+      const employeeStoreId = await tryResolveStoreIdForUser(existing.userId);
+      if (!managerStoreId || managerStoreId !== employeeStoreId) {
+        return res.status(403).json({ message: "Not authorized to review this override" });
+      }
+
+      const [updated] = await db.update(userAvailabilityOverrides)
+        .set({
+          status,
+          approvalNote: approvalNote ?? null,
+          setByManagerId: managerId,
+          updatedAt: new Date(),
+        })
+        .where(eq(userAvailabilityOverrides.id, id))
+        .returning();
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error reviewing availability override:", error);
+      res.status(500).json({ message: "Failed to review override" });
     }
   });
 }

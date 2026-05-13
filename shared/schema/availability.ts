@@ -58,11 +58,15 @@ export const userAvailabilityOverrides = pgTable("user_availability_overrides", 
   endTime: varchar("end_time", { length: 5 }),     // "HH:mm"
   unavailable: boolean("unavailable").default(false),
   setByManagerId: varchar("set_by_manager_id").references(() => users.id), // null = employee set it
+  submittedByEmployeeId: varchar("submitted_by_employee_id").references(() => users.id), // null = manager-initiated
+  status: varchar("status").default("approved"),   // 'pending' | 'approved' | 'rejected'
+  approvalNote: text("approval_note"),             // manager's comment on review
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   uniqueIndex("idx_user_avail_overrides_user_date").on(table.userId, table.date),
   index("idx_user_avail_overrides_date").on(table.date),
+  index("idx_user_avail_overrides_status").on(table.status),
 ]);
 
 // Time-off requests

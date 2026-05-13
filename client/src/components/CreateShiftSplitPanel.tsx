@@ -2854,6 +2854,17 @@ export default function CreateShiftSplitPanel({
     staleTime: 2 * 60_000,
   });
 
+  const { data: hoursSummary } = useQuery<{ dayHours: number; weekHours: number; payPeriodHours: number; targetWeeklyHours: number | null } | null>({
+    queryKey: ['/api/schedules/hours-summary', selectedUserId, modalDate],
+    queryFn: async () => {
+      const res = await fetch(`/api/schedules/hours-summary?userId=${selectedUserId}&date=${modalDate}`, { credentials: 'include' });
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: open && !!selectedUserId && !!modalDate,
+    staleTime: 60_000,
+  });
+
   // Roles list — used by the live margin meter to fall back to
   // `role.defaultHourlyRate` when an employee has no per-user hourly rate set.
   // Cheap query (cached server-side) and only fired while the panel is open.
@@ -5271,10 +5282,15 @@ export default function CreateShiftSplitPanel({
                       // When editing a saved shift, always include the currently-assigned
                       // employee even if the availability filter would hide them.
                       const base = filterByAvailability ? modalEmployees : employees;
-                      const list =
+                      const unsorted =
                         editingSchedule && selectedUserId && !base.some((e) => e.id === selectedUserId)
                           ? [...base, ...employees.filter((e) => e.id === selectedUserId)]
                           : base;
+                      const list = [...unsorted].sort((a, b) => {
+                        const nameA = `${a.firstName ?? ''} ${a.lastName ?? ''}`.trim().toLowerCase();
+                        const nameB = `${b.firstName ?? ''} ${b.lastName ?? ''}`.trim().toLowerCase();
+                        return nameA.localeCompare(nameB);
+                      });
                       if (list.length === 0) {
                         return (
                           <div className="py-2 px-3 text-xs text-muted-foreground">
@@ -5318,6 +5334,39 @@ export default function CreateShiftSplitPanel({
                   </SelectContent>
                 </Select>
               </div>
+
+              {/* Hours context infobar — shows existing scheduled hours for the selected employee */}
+              {hoursSummary && selectedUserId && (
+                (() => {
+                  const weekTarget = hoursSummary.targetWeeklyHours ?? 40;
+                  const isOtRisk = hoursSummary.weekHours > weekTarget;
+                  return (
+                    <div className={cn(
+                      "flex items-center gap-2 rounded-md border px-3 py-1.5 text-[11px] text-muted-foreground",
+                      isOtRisk
+                        ? "bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700"
+                        : "bg-muted/40 border-border/50"
+                    )}>
+                      <Clock className={cn("h-3 w-3 shrink-0", isOtRisk && "text-amber-600 dark:text-amber-400")} />
+                      <span>
+                        <span className="font-medium text-foreground">{hoursSummary.dayHours.toFixed(1)}h</span> today
+                      </span>
+                      <span className="text-border">·</span>
+                      <span className={cn(isOtRisk && "text-amber-700 dark:text-amber-400")}>
+                        <span className="font-medium text-foreground">{hoursSummary.weekHours.toFixed(1)}h</span>
+                        {hoursSummary.targetWeeklyHours != null
+                          ? `/${hoursSummary.targetWeeklyHours}h wk`
+                          : ' this week'}
+                        {isOtRisk && <span className="ml-1 text-amber-600 dark:text-amber-400">(OT risk)</span>}
+                      </span>
+                      <span className="text-border">·</span>
+                      <span>
+                        <span className="font-medium text-foreground">{hoursSummary.payPeriodHours.toFixed(1)}h</span> pay period
+                      </span>
+                    </div>
+                  );
+                })()
+              )}
 
               <div>
                 <Label className="text-xs">Date</Label>
