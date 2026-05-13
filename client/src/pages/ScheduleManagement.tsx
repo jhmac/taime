@@ -1853,6 +1853,11 @@ export default function ScheduleManagement() {
             subView={scheduleSubView}
             onSubViewChange={handleSubViewChange}
             schedules={schedules}
+            pendingShifts={
+              aiResult
+                ? aiResult.generatedSchedule.filter((_, i) => !removedEntries.has(i))
+                : undefined
+            }
             users={activeEmployees}
             weekDates={weekDates}
             selectedWeek={selectedWeek}

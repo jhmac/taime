@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Schedule, User } from "@shared/schema";
+import type { AiScheduleEntry } from "@/lib/aiScheduleEditing";
 import { ChevronLeft, ChevronRight, Circle } from "lucide-react";
 
 // Constants
@@ -86,6 +87,7 @@ interface Props {
   subView: ScheduleSubView;
   onSubViewChange: (v: ScheduleSubView) => void;
   schedules: Schedule[];
+  pendingShifts?: AiScheduleEntry[];
   users: User[];
   weekDates: Date[];
   selectedWeek: number;
@@ -379,6 +381,38 @@ function ShiftBlock({
   );
 }
 
+// PendingShiftBlock — purple dashed overlay for AI-proposed shifts not yet applied
+function PendingShiftBlock({ entry, hourPx, isMobile }: {
+  entry: AiScheduleEntry;
+  hourPx: number;
+  isMobile?: boolean;
+}) {
+  const [sh, sm] = entry.startTime.split(':').map(Number);
+  const [eh, em] = entry.endTime.split(':').map(Number);
+  const startMin    = sh * 60 + sm;
+  const endMin      = eh * 60 + em;
+  const dayStartMin = DAY_START_HOUR * 60;
+  const top    = ((startMin - dayStartMin) / 60) * hourPx;
+  const height = Math.max(((endMin - startMin) / 60) * hourPx, isMobile ? 40 : 28);
+  const h12s = sh % 12 || 12, aps = sh >= 12 ? 'pm' : 'am';
+  const h12e = eh % 12 || 12, ape = eh >= 12 ? 'pm' : 'am';
+  const timeLabel = `${h12s}${sm > 0 ? ':' + String(sm).padStart(2,'0') : ''}${aps}–${h12e}${em > 0 ? ':' + String(em).padStart(2,'0') : ''}${ape}`;
+  const showTime = height >= 40;
+  return (
+    <div
+      className="absolute left-px right-px rounded-md overflow-hidden border-2 border-dashed border-violet-400 dark:border-violet-500 bg-violet-100/70 dark:bg-violet-900/40 z-[5] pointer-events-none"
+      style={{ top: `${top}px`, height: `${height}px` }}
+      title={`Pending: ${entry.employeeName} · ${timeLabel}`}
+    >
+      <div className="px-1.5 pt-0.5 flex flex-col gap-0">
+        <span className="text-[8px] font-bold uppercase tracking-wide text-violet-600 dark:text-violet-300 leading-tight">Pending</span>
+        <span className="text-[10px] font-semibold truncate leading-tight text-violet-700 dark:text-violet-200">{entry.employeeName}</span>
+        {showTime && <span className="text-[9px] truncate text-violet-600/80 dark:text-violet-300/80">{timeLabel}</span>}
+      </div>
+    </div>
+  );
+}
+
 // CurrentTimeLine — red horizontal line at the current hour in Day/Week views
 function CurrentTimeLine({ hourPx, nowSentinelRef }: {
   hourPx: number;
@@ -418,6 +452,7 @@ function CurrentTimeLine({ hourPx, nowSentinelRef }: {
 function DayColumn({
   date,
   shifts,
+  pendingShifts,
   users,
   hourPx,
   onEdit,
@@ -432,6 +467,7 @@ function DayColumn({
 }: {
   date: Date;
   shifts: Schedule[];
+  pendingShifts?: AiScheduleEntry[];
   users: User[];
   hourPx: number;
   onEdit: (s: Schedule) => void;
@@ -499,6 +535,10 @@ function DayColumn({
           isMobile={isMobile}
         />
       ))}
+      {/* Pending AI-proposed shifts — violet dashed overlay */}
+      {pendingShifts?.filter(e => e.date === formatLocalDate(date)).map((entry, i) => (
+        <PendingShiftBlock key={`pending-${i}`} entry={entry} hourPx={hourPx} isMobile={isMobile} />
+      ))}
     </div>
   );
 }
@@ -524,6 +564,7 @@ function TimeLabels({ hourPx }: { hourPx: number }) {
 function DayView({
   date,
   schedules,
+  pendingShifts,
   users,
   hourPx,
   onEdit,
@@ -537,6 +578,7 @@ function DayView({
 }: {
   date: Date;
   schedules: Schedule[];
+  pendingShifts?: AiScheduleEntry[];
   users: User[];
   hourPx: number;
   onEdit: (s: Schedule) => void;
@@ -564,6 +606,7 @@ function DayView({
           <DayColumn
             date={date}
             shifts={dayShifts}
+            pendingShifts={pendingShifts}
             users={users}
             hourPx={hourPx}
             onEdit={onEdit}
@@ -632,6 +675,7 @@ function MobileWeekStrip({
 function WeekView({
   weekDates,
   schedules,
+  pendingShifts,
   users,
   hourPx,
   onEdit,
@@ -647,6 +691,7 @@ function WeekView({
 }: {
   weekDates: Date[];
   schedules: Schedule[];
+  pendingShifts?: AiScheduleEntry[];
   users: User[];
   hourPx: number;
   onEdit: (s: Schedule) => void;
@@ -738,6 +783,7 @@ function WeekView({
                 <DayColumn
                   date={date}
                   shifts={dayShifts}
+                  pendingShifts={pendingShifts}
                   users={users}
                   hourPx={hourPx}
                   onEdit={onEdit}
@@ -927,6 +973,7 @@ export default function ScheduleTimelineView({
   subView,
   onSubViewChange,
   schedules: weekSchedules,
+  pendingShifts,
   users,
   weekDates,
   selectedWeek,
@@ -1419,6 +1466,7 @@ export default function ScheduleTimelineView({
           <DayView
             date={dayViewDate}
             schedules={dayViewSchedules}
+            pendingShifts={pendingShifts}
             users={users}
             hourPx={hourPx}
             onEdit={onEditSchedule}
@@ -1435,6 +1483,7 @@ export default function ScheduleTimelineView({
           <WeekView
             weekDates={weekDates}
             schedules={weekSchedules}
+            pendingShifts={pendingShifts}
             users={users}
             hourPx={hourPx}
             onEdit={onEditSchedule}
