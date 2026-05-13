@@ -774,6 +774,62 @@ export default function ScheduleManagement() {
     }
   }, [wsMessage, queryClient]);
 
+  // Restore persisted AI-suggested shifts from the DB when the viewed week
+  // changes (including on first load). The server saves suggestions to
+  // ai_suggested_schedules every time POST /api/schedules/suggest is called,
+  // so a hard refresh no longer loses the pending review state.
+  useEffect(() => {
+    let cancelled = false;
+    // Clear stale in-memory AI result from a previous week so the new week
+    // starts clean, then reload whatever the DB has for this week.
+    setAiResult(null);
+    setAiResultRange(null);
+    setRemovedEntries(new Set());
+    setReviewResult(null);
+    setEditingAiEntry(null);
+
+    const weekDayStrs = weekDates.map(d => formatLocalDate(d));
+    Promise.all(
+      weekDayStrs.map(dayStr =>
+        fetch(`/api/schedules/suggest?date=${dayStr}`, { credentials: 'include' })
+          .then(r => r.ok ? r.json() : null)
+          .catch(() => null)
+      )
+    ).then(results => {
+      if (cancelled) return;
+      const allShifts: any[] = [];
+      for (let i = 0; i < results.length; i++) {
+        const data = results[i];
+        if (!data?.proposedShifts?.length) continue;
+        for (const s of data.proposedShifts) {
+          allShifts.push({
+            employeeId: s.employeeId,
+            employeeName: s.employeeName,
+            date: weekDayStrs[i],
+            startTime: s.startTime,
+            endTime: s.endTime,
+            shiftBlock: s.shiftBlock || '',
+            reasoning: s.rationale || '',
+          });
+        }
+      }
+      if (allShifts.length > 0) {
+        setAiResult({
+          generatedSchedule: allShifts,
+          summary: `${allShifts.length} pending shift${allShifts.length !== 1 ? 's' : ''} — tap Apply to confirm.`,
+          days: weekDayStrs.map(d => ({ date: d })),
+          success: true,
+          warnings: [],
+          settings: null,
+          salesDataAvailable: false,
+        });
+        setAiResultRange({ startDate: weekDayStrs[0], endDate: weekDayStrs[6] });
+      }
+    }).catch(() => {});
+
+    return () => { cancelled = true; };
+  }, [selectedWeek]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const { data: users = [], isLoading: usersLoading } = useQuery<User[]>({
     queryKey: ["/api/users"],
   });
