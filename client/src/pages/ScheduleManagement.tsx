@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -32,7 +32,7 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import AvailabilityCommandPanel from "@/components/AvailabilityCommandPanel";
 import SuggestedScheduleReview from "@/components/SuggestedScheduleReview";
-import CreateShiftSplitPanel from "@/components/CreateShiftSplitPanel";
+import CreateShiftSplitPanel, { type ProposedShift } from "@/components/CreateShiftSplitPanel";
 import ScheduleTimelineView, { type ScheduleSubView } from "@/components/ScheduleTimelineView";
 import ScheduleReviewModal, { type ReviewResult, ratingConfig } from "@/components/ScheduleReviewModal";
 import { useWebSocketContext } from "@/contexts/WebSocketContext";
@@ -1320,6 +1320,40 @@ export default function ScheduleManagement() {
   const activeAiEntriesCount = aiResult
     ? aiResult.generatedSchedule.length - removedEntries.size
     : 0;
+
+  // Convert the parent's aiResult entries for the currently-open panel date
+  // into ProposedShift[] so the Create Shift panel uses the same source of
+  // truth as the timeline view.  Excluded (removed) indices are omitted.
+  const modalDateAiShifts = useMemo((): ProposedShift[] => {
+    if (!aiResult || !modalDate) return [];
+    return aiResult.generatedSchedule
+      .filter((e, i) => e.date === modalDate && !removedEntries.has(i))
+      .map((e) => ({
+        employeeId: e.employeeId,
+        employeeName: e.employeeName,
+        profileImageUrl: null,
+        startTime: e.startTime,
+        endTime: e.endTime,
+        shiftBlock: e.shiftBlock,
+        rationale: e.reasoning,
+        revenue: 0,
+      }));
+  }, [aiResult, modalDate, removedEntries]);
+
+  // When the Create Shift panel applies AI shifts, remove those employees from
+  // the parent's aiResult so the timeline's pending-shift count stays in sync.
+  const handleAiShiftsApplied = useCallback((employeeIds: string[], date: string) => {
+    setAiResult((prev) => {
+      if (!prev) return null;
+      const removedSet = new Set(employeeIds);
+      const nextSchedule = prev.generatedSchedule.filter(
+        (e) => !(e.date === date && removedSet.has(e.employeeId)),
+      );
+      return { ...prev, generatedSchedule: nextSchedule };
+    });
+    // Indices shift after filtering so reset removedEntries to avoid stale refs.
+    setRemovedEntries(new Set());
+  }, []);
 
   const reviewAvailMutation = useMutation({
     mutationFn: async ({ id, action, note }: { id: string; action: 'approve' | 'reject'; note?: string }) => {
@@ -2869,6 +2903,8 @@ export default function ScheduleManagement() {
         isDeleting={deleteScheduleMutation.isPending}
         currentWeekRange={{ start: startDateParam, end: endDateParam }}
         onJumpToWeek={jumpToWeekContaining}
+        aiPendingShifts={modalDateAiShifts}
+        onAiShiftsApplied={handleAiShiftsApplied}
       />
 
       {/* Availability Override Dialog */}

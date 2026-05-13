@@ -66,7 +66,7 @@ interface HistoricalSalesData {
   storeHours: { open: string; close: string };
 }
 
-interface ProposedShift {
+export interface ProposedShift {
   employeeId: string;
   employeeName: string;
   profileImageUrl: string | null;
@@ -176,6 +176,13 @@ interface Props {
   /** Called when the user clicks the "Jump to that week" toast action after saving shifts
    *  for a date outside the visible week. The receiver should adjust the grid's week state. */
   onJumpToWeek?: (date: string) => void;
+  /** Parent's in-memory AI pending shifts for the currently-selected date (derived from
+   *  aiResult). When provided, the panel uses these instead of its own DB fetch so the
+   *  "AI Suggested" column always matches the timeline's pending-shift count. */
+  aiPendingShifts?: ProposedShift[];
+  /** Fired after the panel successfully applies AI shifts so the parent can remove those
+   *  employees' entries from its in-memory aiResult and keep the timeline in sync. */
+  onAiShiftsApplied?: (employeeIds: string[], date: string) => void;
 }
 
 function fmt12(t: string) {
@@ -2013,6 +2020,8 @@ export default function CreateShiftSplitPanel({
   onSelectSchedule,
   currentWeekRange,
   onJumpToWeek,
+  aiPendingShifts,
+  onAiShiftsApplied,
 }: Props) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -2931,11 +2940,33 @@ export default function CreateShiftSplitPanel({
   // prior create-mode open on the same date from leaking into the edit view.
   const effectiveSuggestData = editingSchedule ? undefined : suggestData;
 
+  // When the parent has active AI pending shifts for this date (from aiResult),
+  // use them as the proposedShifts source so the panel's "AI Suggested" column
+  // stays in sync with the timeline view. Falls back to the panel's own DB
+  // fetch when no parent data is available, or when editing an existing shift.
+  const resolvedSuggestData = useMemo((): SuggestData | undefined => {
+    if (editingSchedule) return undefined;
+    if (!aiPendingShifts?.length) return effectiveSuggestData;
+    if (effectiveSuggestData) {
+      return { ...effectiveSuggestData, proposedShifts: aiPendingShifts };
+    }
+    // API fetch still in-flight but parent already has data — show it immediately
+    // so the count matches the timeline without waiting for the round-trip.
+    return {
+      date: modalDate,
+      proposedShifts: aiPendingShifts,
+      historicalDate: '',
+      dataSource: 'ai',
+      hourlyData: [],
+      storeHours: { open: '09:00', close: '21:00' },
+    };
+  }, [editingSchedule, aiPendingShifts, effectiveSuggestData, modalDate]);
+
   // Mirror into ref so undo/redo and handler-side aiCount math (which can't
   // re-read from useState during a callback) stay aligned with the rendered UI.
   useEffect(() => {
-    suggestDataRef.current = effectiveSuggestData;
-  }, [effectiveSuggestData]);
+    suggestDataRef.current = resolvedSuggestData;
+  }, [resolvedSuggestData]);
 
   // Mutation to persist a pill-added shift to the suggested schedule cache
   const persistPillShiftMutation = useMutation({
@@ -3329,7 +3360,7 @@ export default function CreateShiftSplitPanel({
         { trace: true },
       );
     },
-    onSuccess: async (response: any) => {
+    onSuccess: async (response: any, variables: ProposedShift[]) => {
       const result = await response.json();
       const skipped = pendingSkippedCountRef.current;
       pendingSkippedCountRef.current = 0;
@@ -3497,6 +3528,13 @@ export default function CreateShiftSplitPanel({
           variant: 'destructive',
           duration: 12_000,
         });
+      }
+      // Notify parent so it can remove these employees from its in-memory
+      // aiResult for this date, keeping the timeline's pending-shift count
+      // in sync with what the panel just saved.
+      const savedEmployeeIds = variables.map((s) => s.employeeId).filter(Boolean);
+      if (savedEmployeeIds.length > 0 && modalDate) {
+        onAiShiftsApplied?.(savedEmployeeIds, modalDate);
       }
       onOpenChange(false);
     },
@@ -3934,9 +3972,11 @@ export default function CreateShiftSplitPanel({
     }
   };
 
-  // Reads through effectiveSuggestData so this is automatically [] in
-  // editingSchedule mode (see derivation near the suggest useQuery).
-  const aiProposedShifts = (effectiveSuggestData?.proposedShifts ?? []).map(
+  // Reads through resolvedSuggestData so this is automatically [] in
+  // editingSchedule mode (see derivation near the suggest useQuery), and uses
+  // parent-provided aiPendingShifts when available so the count matches the
+  // timeline's pending-shift display.
+  const aiProposedShifts = (resolvedSuggestData?.proposedShifts ?? []).map(
     (shift, idx) => editedShifts[idx] ? { ...shift, ...editedShifts[idx] } : shift
   );
 
@@ -3946,9 +3986,9 @@ export default function CreateShiftSplitPanel({
   // mis-attribute exclusions. Manual-tagged entries are filtered out so the
   // ghost preview only ever surfaces genuine AI suggestions (no duplicate-
   // add of manual entries). Auto-empty in editingSchedule mode via
-  // effectiveSuggestData.
+  // resolvedSuggestData.
   const aiGhostCandidates = useMemo<AiGhostCandidate[]>(
-    () => (effectiveSuggestData?.proposedShifts ?? [])
+    () => (resolvedSuggestData?.proposedShifts ?? [])
       .map((s, idx) => ({ s, idx }))
       .filter(({ s }) => (s.shiftBlock || '').toLowerCase() !== 'manual')
       .map(({ s, idx }): AiGhostCandidate => ({
@@ -3959,7 +3999,7 @@ export default function CreateShiftSplitPanel({
         idx,
       }))
       .filter((c) => !!c.employeeId),
-    [effectiveSuggestData],
+    [resolvedSuggestData],
   );
   // Exclude manual shifts that have already been persisted to and returned from the cache
   const persistedManualKeys = new Set(
@@ -3971,10 +4011,11 @@ export default function CreateShiftSplitPanel({
     s => !persistedManualKeys.has(`${s.employeeId}:${s.startTime}:${s.endTime}`)
   );
   const proposedShifts = [...aiProposedShifts, ...pendingManualShifts];
-  // Reads through effectiveSuggestData so the merged payload (passed to
-  // DayTimeline) carries no AI metadata in editingSchedule mode.
-  const mergedSuggestData = effectiveSuggestData
-    ? { ...effectiveSuggestData, proposedShifts }
+  // Reads through resolvedSuggestData so the merged payload (passed to
+  // DayTimeline) carries no AI metadata in editingSchedule mode, and carries
+  // the correct proposedShifts when parent aiPendingShifts override is active.
+  const mergedSuggestData = resolvedSuggestData
+    ? { ...resolvedSuggestData, proposedShifts }
     : proposedShifts.length > 0
     ? {
         date: modalDate,
