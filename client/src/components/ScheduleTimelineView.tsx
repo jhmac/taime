@@ -390,15 +390,30 @@ interface PositionedUnified { item: UnifiedItem; col: number; totalCols: number;
 
 function layoutUnified(confirmed: Schedule[], pending: AiScheduleEntry[], date: Date): PositionedUnified[] {
   const dayStr = formatLocalDate(date);
+  const confirmedItems = confirmed.map(s => ({
+    isPending: false as const,
+    id: s.id,
+    startMs: new Date(s.startTime).getTime(),
+    endMs:   new Date(s.endTime).getTime(),
+    schedule: s,
+  }));
+  const filteredPending = pending.filter(e => {
+    if (e.date !== dayStr) return false;
+    const [sh, sm] = e.startTime.split(':').map(Number);
+    const [eh, em] = e.endTime.split(':').map(Number);
+    const pStart = new Date(date); pStart.setHours(sh, sm, 0, 0);
+    const pEnd   = new Date(date); pEnd.setHours(eh, em, 0, 0);
+    const pStartMs = pStart.getTime();
+    const pEndMs   = pEnd.getTime();
+    return !confirmed.some(
+      s => s.userId === e.employeeId &&
+        new Date(s.startTime).getTime() < pEndMs &&
+        new Date(s.endTime).getTime() > pStartMs,
+    );
+  });
   const all: UnifiedItem[] = [
-    ...confirmed.map(s => ({
-      isPending: false as const,
-      id: s.id,
-      startMs: new Date(s.startTime).getTime(),
-      endMs:   new Date(s.endTime).getTime(),
-      schedule: s,
-    })),
-    ...pending.filter(e => e.date === dayStr).map(e => {
+    ...confirmedItems,
+    ...filteredPending.map(e => {
       const [sh, sm] = e.startTime.split(':').map(Number);
       const [eh, em] = e.endTime.split(':').map(Number);
       const start = new Date(date); start.setHours(sh, sm, 0, 0);
@@ -458,7 +473,8 @@ function PendingShiftBlock({ entry, hourPx, col, totalCols, isMobile }: {
   const showTime = height >= 40;
   return (
     <div
-      className="absolute rounded-md overflow-hidden border-2 border-dashed border-violet-400 dark:border-violet-500 bg-violet-100/70 dark:bg-violet-900/40 z-[5] pointer-events-none"
+      className="absolute rounded-md overflow-hidden border-2 border-dashed border-violet-400 dark:border-violet-500 bg-violet-100/70 dark:bg-violet-900/40 z-[5] pointer-events-auto cursor-default"
+      onClick={e => e.stopPropagation()}
       style={{
         top: `${top}px`,
         height: `${height}px`,
@@ -887,6 +903,7 @@ function MonthView({
   onEdit,
   onDayClick,
   onEmptyDayClick,
+  pendingShifts = [],
 }: {
   year: number;
   month: number;
@@ -895,6 +912,7 @@ function MonthView({
   onEdit: (s: Schedule) => void;
   onDayClick: (date: Date) => void;
   onEmptyDayClick?: (date: Date) => void;
+  pendingShifts?: AiScheduleEntry[];
 }) {
   const firstDay    = new Date(year, month, 1);
   const lastDay     = new Date(year, month + 1, 0);
@@ -920,8 +938,9 @@ function MonthView({
           {cells.map((date, idx) => {
             if (!date) return <div key={`e-${idx}`} className="min-h-[80px]" />;
             const dateStr   = formatLocalDate(date);
-            const dayShifts = schedules.filter(s => formatLocalDate(new Date(s.startTime)) === dateStr);
-            const isToday   = date.toDateString() === today.toDateString();
+            const dayShifts  = schedules.filter(s => formatLocalDate(new Date(s.startTime)) === dateStr);
+            const dayPending = pendingShifts.filter(e => e.date === dateStr);
+            const isToday    = date.toDateString() === today.toDateString();
             return (
               <div
                 key={dateStr}
@@ -954,6 +973,15 @@ function MonthView({
                       </div>
                     );
                   })}
+                  {dayPending.slice(0, 2).map(e => (
+                    <div
+                      key={`pending-${e.employeeId}-${e.startTime}-${e.endTime}`}
+                      className="text-[9px] px-1 py-0.5 rounded truncate border border-dashed border-violet-400 bg-violet-100/70 text-violet-700 dark:border-violet-500 dark:bg-violet-900/40 dark:text-violet-200"
+                      title={`Pending: ${e.employeeName} · ${e.startTime}–${e.endTime}`}
+                    >
+                      {e.employeeName} ~{e.startTime}
+                    </div>
+                  ))}
                   {dayShifts.length > 3 && (
                     <div className="text-[9px] text-muted-foreground pl-1">+{dayShifts.length - 3} more</div>
                   )}
@@ -972,10 +1000,12 @@ function YearView({
   year,
   schedules,
   onDayNavigate,
+  pendingShifts = [],
 }: {
   year: number;
   schedules: Schedule[];
   onDayNavigate: (date: Date) => void;
+  pendingShifts?: AiScheduleEntry[];
 }) {
   const today = new Date();
 
@@ -985,8 +1015,11 @@ function YearView({
       const key = formatLocalDate(new Date(s.startTime));
       map[key] = (map[key] || 0) + 1;
     }
+    for (const e of pendingShifts) {
+      map[e.date] = (map[e.date] || 0) + 1;
+    }
     return map;
-  }, [schedules]);
+  }, [schedules, pendingShifts]);
 
   const maxCoverage = Math.max(1, ...Object.values(coverageMap));
 
@@ -1580,6 +1613,7 @@ export default function ScheduleTimelineView({
             onEdit={onEditSchedule}
             onDayClick={handleMonthDayClick}
             onEmptyDayClick={handleMonthEmptyDayClick}
+            pendingShifts={pendingShifts}
           />
         )}
         {effectiveSubView === 'year' && (
@@ -1587,6 +1621,7 @@ export default function ScheduleTimelineView({
             year={yearViewYear}
             schedules={yearSchedules}
             onDayNavigate={handleYearDayNavigate}
+            pendingShifts={pendingShifts}
           />
         )}
       </div>

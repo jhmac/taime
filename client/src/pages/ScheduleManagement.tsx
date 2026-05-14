@@ -951,9 +951,18 @@ export default function ScheduleManagement() {
       const res = await apiRequest('POST', '/api/schedules/auto-assign-day', payload);
       return res.json();
     },
-    onSuccess: (data: any) => {
+    onSuccess: (
+      data: { created: number; skipped?: number; message: string; schedules?: Array<{ userId: string }> },
+      variables: { date: string; startTime?: string; endTime?: string },
+    ) => {
       invalidateScheduleSurfaces();
       setShowCreateShift(false);
+      if (data.schedules && data.schedules.length > 0) {
+        const employeeIds = data.schedules.map((s) => s.userId).filter(Boolean);
+        if (employeeIds.length > 0) {
+          handleAiShiftsApplied(employeeIds, variables.date);
+        }
+      }
       if (data.created === 0) {
         toast({ title: "Auto-Assign", description: data.message });
       } else {
