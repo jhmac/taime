@@ -3961,6 +3961,36 @@ export default function CreateShiftSplitPanel({
       }
       handleEditingScheduleSave();
     } else {
+      // Client-side pre-check: catch overlaps before the POST reaches the
+      // server so the user gets the same rich conflict dialog that the edit
+      // path already shows (setPendingOverlapConflict), instead of a generic
+      // "Failed to create shift" toast after the round-trip.
+      if (selectedUserId && modalDate && modalStartTime && modalEndTime) {
+        const [cy, cm, cd] = modalDate.split('-').map(Number);
+        const [csh, csm] = modalStartTime.split(':').map(Number);
+        const [ceh, cem] = modalEndTime.split(':').map(Number);
+        if (![cy, cm, cd, csh, csm, ceh, cem].some(n => Number.isNaN(n))) {
+          const cNewStart = new Date(cy, cm - 1, cd, csh, csm, 0, 0);
+          const cNewEnd   = new Date(cy, cm - 1, cd, ceh, cem, 0, 0);
+          if (cNewEnd.getTime() <= cNewStart.getTime()) cNewEnd.setDate(cNewEnd.getDate() + 1);
+          const cNewStartMs = cNewStart.getTime();
+          const cNewEndMs   = cNewEnd.getTime();
+          const conflict = (schedules ?? []).find(s => {
+            if (s.userId !== selectedUserId) return false;
+            const os = new Date(s.startTime as unknown as string).getTime();
+            const oe = new Date(s.endTime   as unknown as string).getTime();
+            return Number.isFinite(os) && Number.isFinite(oe) && cNewStartMs < oe && cNewEndMs > os;
+          });
+          if (conflict) {
+            const emp = employees.find(u => u.id === selectedUserId);
+            const empName = emp
+              ? `${emp.firstName ?? ''} ${emp.lastName ?? ''}`.trim() || emp.email || 'This employee'
+              : 'This employee';
+            setPendingOverlapConflict({ conflictSchedule: conflict, employeeName: empName });
+            return;
+          }
+        }
+      }
       onCreateShift({
         userId: selectedUserId,
         startTime: new Date(`${modalDate}T${modalStartTime}`),

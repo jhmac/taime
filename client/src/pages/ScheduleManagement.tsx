@@ -953,8 +953,16 @@ export default function ScheduleManagement() {
       setShowCreateShift(false);
       toast({ title: "Success", description: "Shift created!" });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to create shift.", variant: "destructive" });
+    onError: (error) => {
+      const msg = error instanceof Error ? error.message : '';
+      const isOverlap = /23P01|overlap|already scheduled|conflict/i.test(msg);
+      toast({
+        title: isOverlap ? "Scheduling Conflict" : "Error",
+        description: isOverlap
+          ? "This employee already has a shift that overlaps these times. Remove or adjust the existing shift first."
+          : "Failed to create shift.",
+        variant: "destructive",
+      });
     },
   });
 

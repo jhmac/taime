@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
-import { insertScheduleSchema, users, messageThreads, threadParticipants, threadMessages, userAvailability, aiSchedulingSettings, scoreHistory, schedules as schedulesTable, payrollPeriods } from "@shared/schema";
+import { insertScheduleSchema, users, messageThreads, threadParticipants, threadMessages, userAvailability, aiSchedulingSettings, scoreHistory, schedules as schedulesTable, payrollPeriods, workLocations } from "@shared/schema";
 import { eq, and, inArray, gte, lte, lt, gt, desc, sql } from "drizzle-orm";
 import { db } from "../db";
 import { notificationService } from "../services/notificationService";
@@ -9,6 +9,43 @@ import { tryResolveStoreIdForUser } from "../services/storeResolver";
 import { computeScheduleDmRecipients, computeScheduleStoreRecipients } from "../lib/broadcastRecipients";
 import { getAllStoreUserIds } from "../lib/permissionUtils";
 import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
+
+/**
+ * Returns the UTC offset in minutes for a given instant in an IANA timezone.
+ * Mirrors the helper in aiScheduling.ts so auto-assign-day can do the same
+ * timezone-aware date construction without importing from that module.
+ */
+function getTimezoneOffsetMinutes(date: Date, timezone: string): number {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      hour: 'numeric',
+      minute: 'numeric',
+      hour12: false,
+      timeZoneName: 'shortOffset',
+    });
+    const parts = formatter.formatToParts(date);
+    const offsetPart = parts.find(p => p.type === 'timeZoneName')?.value ?? '';
+    const match = offsetPart.match(/GMT([+-])(\d{1,2})(?::(\d{2}))?/);
+    if (!match) return 0;
+    const sign = match[1] === '+' ? 1 : -1;
+    const hours = parseInt(match[2], 10);
+    const minutes = parseInt(match[3] ?? '0', 10);
+    return sign * (hours * 60 + minutes);
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Converts a wall-clock "YYYY-MM-DD"+"HH:MM" in the store's IANA timezone to
+ * the correct UTC Date. Mirrors localToUtc in aiScheduling.ts.
+ */
+function wallClockToUtc(dateStr: string, timeStr: string, timezone: string): Date {
+  const naive = new Date(`${dateStr}T${timeStr}:00Z`);
+  const offsetMin = getTimezoneOffsetMinutes(naive, timezone);
+  return new Date(naive.getTime() - offsetMin * 60_000);
+}
 
 /**
  * Returns the YYYY-MM-DD slice of a timestamp value (UTC), or undefined when
@@ -680,6 +717,20 @@ export function registerScheduleRoutes(
             .limit(1)
         : [];
       const aiSettings = aiRows[0] as any | null;
+
+      // Resolve store timezone so wall-clock times (e.g. "09:00" for a
+      // 9 am local shift) are stored as the correct UTC instant. Without
+      // this, `new Date("2026-05-12T09:00:00")` on the Replit server
+      // (UTC) would produce 09:00Z — which renders as 4 am or 5 am in
+      // CDT browsers and creates 18-hour "zombie" blocks that block
+      // subsequent shift creation for the same employee.
+      const tzRow = autoAssignStoreId
+        ? await db.select({ timezone: workLocations.timezone })
+            .from(workLocations)
+            .where(eq(workLocations.id, autoAssignStoreId))
+            .limit(1)
+        : [];
+      const autoAssignStoreTz = tzRow[0]?.timezone ?? 'America/New_York';
       const minimumStaffing: number = aiSettings?.minimumStaffing ?? 2;
       const storeHoursConfig: any[] = aiSettings?.storeHours ?? [];
 
@@ -745,8 +796,8 @@ export function registerScheduleRoutes(
 
       const created: any[] = [];
       for (const emp of toCreate) {
-        const startTimeDate = new Date(`${date}T${shiftStart}:00`);
-        const endTimeDate = new Date(`${date}T${shiftEnd}:00`);
+        const startTimeDate = wallClockToUtc(date, shiftStart, autoAssignStoreTz);
+        const endTimeDate = wallClockToUtc(date, shiftEnd, autoAssignStoreTz);
         const schedule = await storage.createSchedule({
           userId: emp.id,
           startTime: startTimeDate,
