@@ -831,6 +831,7 @@ function WeekView({
                   key={i}
                   className={cn(
                     "flex-1 text-center py-2 border-r last:border-r-0 text-xs font-medium",
+                    i % 2 === 0 ? "bg-background" : "bg-muted/30",
                     isToday ? "text-primary" : "text-muted-foreground"
                   )}
                 >
@@ -851,6 +852,7 @@ function WeekView({
                   key={i}
                   className={cn(
                     "flex-1 text-center py-1.5 border-r last:border-r-0 text-xs font-medium",
+                    i % 2 === 0 ? "bg-background" : "bg-muted/30",
                     isToday ? "text-primary" : "text-muted-foreground"
                   )}
                 >
@@ -868,7 +870,7 @@ function WeekView({
             const dayShifts = schedules.filter(s => formatLocalDate(new Date(s.startTime)) === dayStr);
             const isToday   = date.toDateString() === today;
             return (
-              <div key={i} className="flex-1 min-w-0 border-r last:border-r-0">
+              <div key={i} className={cn("flex-1 min-w-0 border-r last:border-r-0", i % 2 === 0 ? "bg-background" : "bg-muted/30")}>
                 <DayColumn
                   date={date}
                   shifts={dayShifts}
