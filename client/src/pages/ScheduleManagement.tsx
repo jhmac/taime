@@ -789,6 +789,18 @@ export default function ScheduleManagement() {
     setEditingAiEntry(null);
 
     const weekDayStrs = weekDates.map(d => formatLocalDate(d));
+
+    // TTL: if the viewed week has already ended, automatically discard any
+    // stale DB proposals for that week and skip restoration.
+    const weekEndMs = new Date(weekDayStrs[6] + 'T23:59:59').getTime();
+    if (weekEndMs < Date.now()) {
+      weekDayStrs.forEach(dayStr => {
+        fetch(`/api/schedules/suggest?date=${dayStr}`, { method: 'DELETE', credentials: 'include' })
+          .catch((err) => console.warn('[AI proposals TTL] Failed to delete stale suggestion for', dayStr, err));
+      });
+      return;
+    }
+
     Promise.all(
       weekDayStrs.map(dayStr =>
         fetch(`/api/schedules/suggest?date=${dayStr}`, { credentials: 'include' })
@@ -1380,6 +1392,15 @@ export default function ScheduleManagement() {
   });
 
   const discardAiResult = () => {
+    // Remove the DB-persisted proposals for every day that had pending shifts,
+    // so they don't reappear on the next page refresh.
+    if (aiResult) {
+      const days = [...new Set(aiResult.generatedSchedule.map((e) => e.date))];
+      for (const day of days) {
+        fetch(`/api/schedules/suggest?date=${day}`, { method: 'DELETE', credentials: 'include' })
+          .catch((err) => console.warn('[AI proposals discard] Failed to delete suggestion for', day, err));
+      }
+    }
     setAiResult(null);
     setAiResultRange(null);
     setRemovedEntries(new Set());
