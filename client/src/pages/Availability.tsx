@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient, invalidatePrefix } from "@/lib/queryClient";
 import { useCompanySettings } from "@/hooks/useCompanySettings";
@@ -386,6 +386,12 @@ export default function Availability() {
   // ── New calendar state ──────────────────────────────────────────────────────
   const [calViewMonth, setCalViewMonth] = useState(new Date());
   const [editorDay, setEditorDay] = useState<string | null>(null);
+
+  // ── Team editor state (manager editing another employee's day) ───────────────
+  const [teamEditorTarget, setTeamEditorTarget] = useState<{ userId: string; dateStr: string; empName: string } | null>(null);
+  const [teamEditorMode, setTeamEditorMode] = useState<'available' | 'unavailable'>('available');
+  const [teamEditorStart, setTeamEditorStart] = useState('09:00');
+  const [teamEditorEnd, setTeamEditorEnd] = useState('17:00');
   const [editorStartTime, setEditorStartTime] = useState(DEFAULT_START);
   const [editorEndTime, setEditorEndTime] = useState(DEFAULT_END);
   const [editorUnavailable, setEditorUnavailable] = useState(false);
@@ -557,6 +563,20 @@ export default function Availability() {
     Object.values(teamCalendarData).forEach(entries => entries.forEach(e => ids.add(e.userId)));
     return Array.from(ids);
   }, [teamCalendarData]);
+
+  // ── Team editor: fetch single day data for the target employee ───────────────
+  const { data: teamEditorDayData } = useQuery<CalDayEntry[]>({
+    queryKey: ['/api/availability/calendar', teamEditorTarget?.userId, teamEditorTarget?.dateStr],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/availability/calendar?userId=${encodeURIComponent(teamEditorTarget!.userId)}&start=${teamEditorTarget!.dateStr}&end=${teamEditorTarget!.dateStr}`,
+        { credentials: 'include' }
+      );
+      if (!res.ok) throw new Error('Failed to fetch');
+      return res.json();
+    },
+    enabled: !!teamEditorTarget,
+  });
 
   // ── Effects: sync server data → local state ─────────────────────────────────
   // Sync weekly availability from server (reset auto-fill UI state when new data loads)
@@ -768,6 +788,46 @@ export default function Availability() {
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to clear.", variant: "destructive" });
+    },
+  });
+
+  // ── Team editor mutations (manager editing another employee) ─────────────────
+  const teamEditorSaveMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest('PATCH', '/api/availability/day', {
+        userId: teamEditorTarget!.userId,
+        date: teamEditorTarget!.dateStr,
+        unavailable: teamEditorMode === 'unavailable',
+        startTime: teamEditorMode === 'available' ? teamEditorStart : undefined,
+        endTime: teamEditorMode === 'available' ? teamEditorEnd : undefined,
+      });
+    },
+    onSuccess: () => {
+      toast({ title: "Availability updated", description: `Saved for ${teamEditorTarget?.empName}` });
+      invalidatePrefix('/api/availability/calendar');
+      setTeamEditorTarget(null);
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to save override.", variant: "destructive" });
+    },
+  });
+
+  const teamEditorClearMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(
+        `/api/availability/day?date=${encodeURIComponent(teamEditorTarget!.dateStr)}&userId=${encodeURIComponent(teamEditorTarget!.userId)}`,
+        { method: 'DELETE', credentials: 'include' }
+      );
+      if (!res.ok) throw new Error('Failed');
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Override cleared", description: `${teamEditorTarget?.empName} reverted to default schedule.` });
+      invalidatePrefix('/api/availability/calendar');
+      setTeamEditorTarget(null);
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to clear override.", variant: "destructive" });
     },
   });
 
@@ -1069,6 +1129,33 @@ export default function Availability() {
     }
   };
 
+  // ── Team editor: seed state when fetched day data arrives ───────────────────
+  useEffect(() => {
+    if (!teamEditorDayData) return;
+    const dayInfo = teamEditorDayData[0] ?? null;
+    if (!dayInfo) {
+      setTeamEditorMode('available');
+      setTeamEditorStart('09:00');
+      setTeamEditorEnd('17:00');
+      return;
+    }
+    if (dayInfo.unavailable || !dayInfo.available) {
+      setTeamEditorMode('unavailable');
+    } else {
+      setTeamEditorMode('available');
+      setTeamEditorStart(dayInfo.startTime ?? '09:00');
+      setTeamEditorEnd(dayInfo.endTime ?? '17:00');
+    }
+  }, [teamEditorDayData]);
+
+  // ── Team editor: open helper ─────────────────────────────────────────────────
+  const openTeamEditor = (userId: string, dateStr: string, empName: string) => {
+    setTeamEditorMode('available');
+    setTeamEditorStart('09:00');
+    setTeamEditorEnd('17:00');
+    setTeamEditorTarget({ userId, dateStr, empName });
+  };
+
   // ── Computed summary helpers ─────────────────────────────────────────────────
   const getDayAvailabilitySummary = (date: Date): 'full' | 'partial' | 'none' => {
     const dateKey = formatDateKey(date);
@@ -1197,13 +1284,23 @@ export default function Availability() {
                     <tbody>
                       {teamUserIds.map((uid) => {
                         const name = userNameMap[uid] || uid;
+                        const todayStr = formatDateKey(new Date());
+                        const nameClickDate = teamWeekDates.find(d => formatDateKey(d) === todayStr)
+                          ? todayStr
+                          : formatDateKey(teamWeekDates[0]);
                         return (
                           <tr key={uid} className="border-t border-border/40">
-                            <td className="sticky left-0 bg-background z-10 py-2 pr-3 font-medium text-foreground truncate max-w-[7rem]" title={name}>
-                              {name.split(' ')[0]}
-                              {name.includes(' ') && (
-                                <span className="text-muted-foreground"> {name.split(' ').slice(1).join(' ')}</span>
-                              )}
+                            <td className="sticky left-0 bg-background z-10 py-2 pr-3 max-w-[7rem]">
+                              <button
+                                onClick={() => openTeamEditor(uid, nameClickDate, name)}
+                                className="text-left font-medium text-foreground truncate max-w-[7rem] hover:text-primary hover:underline transition-colors cursor-pointer w-full"
+                                title={`Edit ${name}'s availability`}
+                              >
+                                {name.split(' ')[0]}
+                                {name.includes(' ') && (
+                                  <span className="text-muted-foreground"> {name.split(' ').slice(1).join(' ')}</span>
+                                )}
+                              </button>
                             </td>
                             {teamWeekDates.map((date, colIdx) => {
                               const dateStr = formatDateKey(date);
@@ -1232,7 +1329,12 @@ export default function Availability() {
                                           ? `Pending: ${formatTimeShort(entry!.startTime!)}–${formatTimeShort(entry!.endTime!)} — click to approve`
                                           : "Pending availability change — click to approve"}
                                       className="inline-flex flex-col items-center gap-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 cursor-pointer hover:bg-amber-200 dark:hover:bg-amber-900/50 transition-colors"
-                                      onClick={() => entry?.overrideId && reviewOverrideMutation.mutate({ id: entry.overrideId, action: 'approve' })}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (entry?.overrideId) {
+                                          reviewOverrideMutation.mutate({ id: entry.overrideId, action: 'approve' });
+                                        }
+                                      }}
                                     >
                                       {pendingHasHours ? (
                                         <>
@@ -1245,31 +1347,39 @@ export default function Availability() {
                                         <span>Avail*</span>
                                       )}
                                     </button>
-                                  ) : isTimeOff ? (
-                                    <span className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400">
-                                      <Umbrella className="h-2.5 w-2.5" />
-                                      Off
-                                    </span>
-                                  ) : isUnavailable ? (
-                                    <span className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
-                                      <Ban className="h-2.5 w-2.5" />
-                                      No
-                                    </span>
-                                  ) : hasHours ? (
-                                    <span className="inline-flex flex-col items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
-                                      {formatTimeShort(entry!.startTime!)}
-                                      <span className="text-[9px] font-normal opacity-80">–{formatTimeShort(entry!.endTime!)}</span>
-                                    </span>
-                                  ) : isAvailable ? (
-                                    <span className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
-                                      <Check className="h-2.5 w-2.5" />
-                                      Avail
-                                    </span>
                                   ) : (
-                                    <span className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-green-50 text-green-600 dark:bg-green-950/20 dark:text-green-500">
-                                      <Check className="h-2.5 w-2.5 opacity-60" />
-                                      Open
-                                    </span>
+                                    <button
+                                      onClick={() => openTeamEditor(uid, dateStr, name)}
+                                      className="inline-flex items-center justify-center w-full rounded hover:opacity-80 active:scale-95 transition-all focus:outline-none focus:ring-1 focus:ring-primary/50"
+                                      title={`Edit ${name}'s availability for ${date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}`}
+                                    >
+                                      {isTimeOff ? (
+                                        <span className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400">
+                                          <Umbrella className="h-2.5 w-2.5" />
+                                          Off
+                                        </span>
+                                      ) : isUnavailable ? (
+                                        <span className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                                          <Ban className="h-2.5 w-2.5" />
+                                          No
+                                        </span>
+                                      ) : hasHours ? (
+                                        <span className="inline-flex flex-col items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                                          {formatTimeShort(entry!.startTime!)}
+                                          <span className="text-[9px] font-normal opacity-80">–{formatTimeShort(entry!.endTime!)}</span>
+                                        </span>
+                                      ) : isAvailable ? (
+                                        <span className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                                          <Check className="h-2.5 w-2.5" />
+                                          Avail
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-green-50 text-green-600 dark:bg-green-950/20 dark:text-green-500">
+                                          <Check className="h-2.5 w-2.5 opacity-60" />
+                                          Open
+                                        </span>
+                                      )}
+                                    </button>
                                   )}
                                 </td>
                               );
@@ -1289,6 +1399,7 @@ export default function Availability() {
                 <div className="flex items-center gap-1"><span className="rounded-full px-1.5 py-0.5 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">No</span>Unavailable</div>
                 <div className="flex items-center gap-1"><span className="rounded-full px-1.5 py-0.5 bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400">Off</span>Time off</div>
                 <div className="flex items-center gap-1"><span className="rounded-full px-1.5 py-0.5 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">Avail*</span>Pending approval — click to approve</div>
+                <div className="flex items-center gap-1 ml-auto italic opacity-70">Tap any cell or name to edit</div>
               </div>
             </CardContent>
           </Card>
@@ -1834,6 +1945,162 @@ export default function Availability() {
               <SheetContent side="bottom" className="rounded-t-2xl pb-8 max-h-[85vh] overflow-y-auto px-4 pt-4">
                 <SheetHeader className="mb-4">
                   <SheetTitle className="text-lg">{editorTitle}</SheetTitle>
+                </SheetHeader>
+                {editorBody}
+              </SheetContent>
+            </Sheet>
+          );
+        })()}
+
+        {/* ── Team Availability Editor (manager editing another employee) ──── */}
+        {teamEditorTarget && (() => {
+          const { dateStr: tDate, empName: tName } = teamEditorTarget;
+          const tDateObj = new Date(tDate + 'T12:00:00Z');
+          const tDow = tDateObj.getUTCDay();
+          const tDateLabel = `${DAY_FULL[tDow]}, ${tDateObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}`;
+          const tDayInfo = teamEditorDayData?.[0] ?? null;
+          const tIsTimeOff = tDayInfo?.source === 'time_off';
+          const tHasOverride = tDayInfo?.source === 'override';
+          const tIsSaving = teamEditorSaveMutation.isPending;
+          const tIsClearing = teamEditorClearMutation.isPending;
+
+          const sourceLabel = tDayInfo?.source === 'override'
+            ? 'Override active'
+            : tDayInfo?.source === 'time_off'
+            ? 'Time-off approved'
+            : tDayInfo?.source === 'template'
+            ? 'From default schedule'
+            : 'Available by default';
+
+          const editorBody = (
+            <div className="space-y-5">
+              {/* Employee + date */}
+              <div className="flex items-center gap-2">
+                <User className="h-4 w-4 text-muted-foreground shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold">{tName}</p>
+                  <p className="text-xs text-muted-foreground">{tDateLabel}</p>
+                </div>
+              </div>
+
+              {/* Current status */}
+              {!teamEditorDayData ? (
+                <div className="h-8 bg-muted/50 rounded-lg animate-pulse" />
+              ) : (
+                <div className={cn(
+                  "text-xs px-2.5 py-1.5 rounded-md border",
+                  tHasOverride && "bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-300",
+                  tIsTimeOff && "bg-sky-50 border-sky-200 text-sky-700 dark:bg-sky-900/20 dark:border-sky-800 dark:text-sky-300",
+                  !tHasOverride && !tIsTimeOff && tDayInfo?.available && "bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-800 dark:text-emerald-300",
+                  !tHasOverride && !tIsTimeOff && !tDayInfo?.available && "bg-muted border-border text-muted-foreground",
+                )}>
+                  <span className="font-medium">{sourceLabel}</span>
+                  {tDayInfo?.available && tDayInfo.startTime && tDayInfo.endTime && (
+                    <span className="ml-1">· {formatTimeShort(tDayInfo.startTime)}–{formatTimeShort(tDayInfo.endTime)}</span>
+                  )}
+                  {tIsTimeOff && tDayInfo?.timeOff && (
+                    <span className="ml-1 capitalize">· {tDayInfo.timeOff.type}</span>
+                  )}
+                </div>
+              )}
+
+              {tIsTimeOff ? (
+                <p className="text-xs text-muted-foreground">
+                  This day has an approved time-off request. To change availability, the time-off request must be cancelled first.
+                </p>
+              ) : (
+                <>
+                  {/* Mode selection */}
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">Set availability</p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setTeamEditorMode('available')}
+                        className={cn(
+                          "flex-1 text-xs px-3 py-2 rounded-md border transition-colors",
+                          teamEditorMode === 'available'
+                            ? "bg-emerald-100 border-emerald-400 text-emerald-800 dark:bg-emerald-900/40 dark:border-emerald-600 dark:text-emerald-200"
+                            : "bg-background border-border text-foreground hover:bg-muted"
+                        )}
+                      >
+                        <Check className="h-3.5 w-3.5 mx-auto mb-0.5" />
+                        Available
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTeamEditorMode('unavailable')}
+                        className={cn(
+                          "flex-1 text-xs px-3 py-2 rounded-md border transition-colors",
+                          teamEditorMode === 'unavailable'
+                            ? "bg-red-100 border-red-400 text-red-800 dark:bg-red-900/40 dark:border-red-600 dark:text-red-200"
+                            : "bg-background border-border text-foreground hover:bg-muted"
+                        )}
+                      >
+                        <Ban className="h-3.5 w-3.5 mx-auto mb-0.5" />
+                        Unavailable
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Time pickers */}
+                  {teamEditorMode === 'available' && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-xs text-muted-foreground mb-1 block">Available from</Label>
+                        <Input type="time" step={1800} value={teamEditorStart} onChange={e => setTeamEditorStart(e.target.value)} className="text-sm" />
+                      </div>
+                      <div>
+                        <Label className="text-xs text-muted-foreground mb-1 block">Until</Label>
+                        <Input type="time" step={1800} value={teamEditorEnd} onChange={e => setTeamEditorEnd(e.target.value)} className="text-sm" />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div className="flex flex-col gap-2">
+                    <Button className="w-full gap-2" onClick={() => teamEditorSaveMutation.mutate()} disabled={tIsSaving || tIsClearing}>
+                      {tIsSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      {tIsSaving ? 'Saving…' : 'Save'}
+                    </Button>
+                    {tHasOverride && (
+                      <Button variant="outline" size="sm" className="text-xs gap-1" onClick={() => teamEditorClearMutation.mutate()} disabled={tIsSaving || tIsClearing}>
+                        {tIsClearing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5" />}
+                        {tIsClearing ? 'Clearing…' : 'Revert to default schedule'}
+                      </Button>
+                    )}
+                    <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => setTeamEditorTarget(null)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          );
+
+          if (isDesktop) {
+            return (
+              <Dialog open={true} onOpenChange={(open) => { if (!open) setTeamEditorTarget(null); }}>
+                <DialogContent className="sm:max-w-sm">
+                  <DialogHeader>
+                    <DialogTitle className="text-base flex items-center gap-2">
+                      <Users className="h-4 w-4" />
+                      Edit Availability
+                    </DialogTitle>
+                  </DialogHeader>
+                  {editorBody}
+                </DialogContent>
+              </Dialog>
+            );
+          }
+          return (
+            <Sheet open={true} onOpenChange={(open) => { if (!open) setTeamEditorTarget(null); }}>
+              <SheetContent side="bottom" className="rounded-t-2xl pb-8 max-h-[85vh] overflow-y-auto px-4 pt-4">
+                <SheetHeader className="mb-4">
+                  <SheetTitle className="text-base flex items-center gap-2">
+                    <Users className="h-4 w-4" />
+                    Edit Availability
+                  </SheetTitle>
                 </SheetHeader>
                 {editorBody}
               </SheetContent>
