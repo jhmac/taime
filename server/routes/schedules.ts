@@ -118,7 +118,14 @@ export function registerScheduleRoutes(
       const user = await storage.getUser(userId);
       
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
-      const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+      // Extend the end of the range to the very end of the requested day (UTC) so
+      // that late-day CDT shifts — which start well after midnight UTC on the
+      // last calendar date — are included in the result. Without this, e.g. a
+      // 9 AM CDT Saturday shift (14:00 UTC) would be cut off when endDate is
+      // parsed as midnight UTC of the same Saturday.
+      const endDate = req.query.endDate
+        ? new Date((req.query.endDate as string) + 'T23:59:59.999Z')
+        : undefined;
 
       let schedules;
       const canViewAll = await resolvePermission(userId, 'schedule.view_all', storage);
