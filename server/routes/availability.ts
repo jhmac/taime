@@ -431,6 +431,10 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
         endTime: string | null;
         setByManagerId: string | null;
         source: 'time_off' | 'override' | 'template' | 'default';
+        /** True when the override is still awaiting manager approval */
+        overridePending?: boolean;
+        /** The override's DB id — only present when overridePending is true */
+        overrideId?: string;
       };
 
       // Per date: return ALL store users with their computed status
@@ -452,11 +456,15 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
             continue;
           }
 
-          // Date-specific override — skip pending/rejected overrides (fall through to template)
-          // Only 'approved' (or legacy null status) overrides are authoritative.
+          // Date-specific override.
+          // 'approved' (or legacy null status) → treat as authoritative.
+          // 'pending'  → surface in the grid as a yellow pending chip so
+          //              managers can see and approve directly from the grid.
+          // 'rejected' → ignore; fall through to template.
           const override = overridesByUserDate[`${uid}:${dateStr}`];
           const overrideStatus = (override as any)?.status;
           const overrideIsActive = override && (overrideStatus == null || overrideStatus === 'approved');
+          const overrideIsPending = override && overrideStatus === 'pending';
           if (overrideIsActive) {
             entries.push({
               userId: uid,
@@ -466,6 +474,20 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
               endTime: !override.unavailable ? (override.endTime ?? null) : null,
               setByManagerId: override.setByManagerId ?? null,
               source: 'override',
+            });
+            continue;
+          }
+          if (overrideIsPending) {
+            entries.push({
+              userId: uid,
+              available: !override.unavailable,
+              unavailable: !!override.unavailable,
+              startTime: !override.unavailable ? (override.startTime ?? null) : null,
+              endTime: !override.unavailable ? (override.endTime ?? null) : null,
+              setByManagerId: null,
+              source: 'override',
+              overridePending: true,
+              overrideId: (override as any).id,
             });
             continue;
           }

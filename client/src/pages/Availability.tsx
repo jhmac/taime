@@ -381,6 +381,7 @@ export default function Availability() {
 
   // ── Per-card approval loading state ────────────────────────────────────────
   const [approvingIds, setApprovingIds] = useState<Set<string>>(new Set());
+  const [approveAllPending, setApproveAllPending] = useState(false);
 
   // ── New calendar state ──────────────────────────────────────────────────────
   const [calViewMonth, setCalViewMonth] = useState(new Date());
@@ -468,6 +469,8 @@ export default function Availability() {
     endTime: string | null;
     setByManagerId: string | null;
     source: 'time_off' | 'override' | 'template' | 'default';
+    overridePending?: boolean;
+    overrideId?: string;
   }
 
   interface PendingOverride {
@@ -830,6 +833,32 @@ export default function Availability() {
     },
   });
 
+  const handleApproveAll = useCallback(async () => {
+    if (totalPendingCount === 0 || approveAllPending) return;
+    setApproveAllPending(true);
+    try {
+      await Promise.all([
+        ...pendingOverrides.map(o =>
+          apiRequest('PATCH', `/api/availability/overrides/${o.id}/review`, { action: 'approve' })
+        ),
+        ...pendingTimeOff.map(r =>
+          apiRequest('PATCH', `/api/time-off-requests/${r.id}`, { status: 'approved' })
+        ),
+      ]);
+      queryClient.invalidateQueries({ queryKey: ['/api/availability/pending-approvals'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/time-off-requests', 'all'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/time-off-requests'] });
+      invalidatePrefix('/api/availability/calendar/team');
+      toast({ title: `Approved all ${totalPendingCount} request${totalPendingCount !== 1 ? 's' : ''}`, description: "All pending requests have been approved." });
+    } catch {
+      toast({ title: "Error", description: "Some requests could not be approved.", variant: "destructive" });
+      queryClient.invalidateQueries({ queryKey: ['/api/availability/pending-approvals'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/time-off-requests', 'all'] });
+    } finally {
+      setApproveAllPending(false);
+    }
+  }, [totalPendingCount, approveAllPending, pendingOverrides, pendingTimeOff, queryClient, invalidatePrefix, toast]);
+
   const saveTemplateDayMutation = useMutation({
     mutationFn: async (body: { dow: number; startTime?: string; endTime?: string; unavailable: boolean }) => {
       // Preserve existing entries exactly as-is; only write the day that changed.
@@ -1180,10 +1209,12 @@ export default function Availability() {
                               const dateStr = formatDateKey(date);
                               const entries = teamCalendarData[dateStr] ?? [];
                               const entry = entries.find(e => e.userId === uid);
+                              const isPending = !!(entry?.overridePending);
                               const isTimeOff = entry?.source === 'time_off';
-                              const isUnavailable = !!(entry?.unavailable);
-                              const isAvailable = entry?.available && !isTimeOff && !isUnavailable;
+                              const isUnavailable = !!(entry?.unavailable) && !isPending;
+                              const isAvailable = entry?.available && !isTimeOff && !isUnavailable && !isPending;
                               const hasHours = isAvailable && entry?.startTime && entry?.endTime;
+                              const pendingHasHours = isPending && entry?.startTime && entry?.endTime;
 
                               return (
                                 <td
@@ -1193,7 +1224,28 @@ export default function Availability() {
                                     colIdx % 2 === 0 ? "bg-background" : "bg-muted/30"
                                   )}
                                 >
-                                  {isTimeOff ? (
+                                  {isPending ? (
+                                    <button
+                                      title={entry?.unavailable
+                                        ? "Pending: wants to mark unavailable — click to approve"
+                                        : pendingHasHours
+                                          ? `Pending: ${formatTimeShort(entry!.startTime!)}–${formatTimeShort(entry!.endTime!)} — click to approve`
+                                          : "Pending availability change — click to approve"}
+                                      className="inline-flex flex-col items-center gap-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 cursor-pointer hover:bg-amber-200 dark:hover:bg-amber-900/50 transition-colors"
+                                      onClick={() => entry?.overrideId && reviewOverrideMutation.mutate({ id: entry.overrideId, action: 'approve' })}
+                                    >
+                                      {pendingHasHours ? (
+                                        <>
+                                          {formatTimeShort(entry!.startTime!)}
+                                          <span className="text-[9px] font-normal opacity-80">–{formatTimeShort(entry!.endTime!)}</span>
+                                        </>
+                                      ) : entry?.unavailable ? (
+                                        <span>No*</span>
+                                      ) : (
+                                        <span>Avail*</span>
+                                      )}
+                                    </button>
+                                  ) : isTimeOff ? (
                                     <span className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400">
                                       <Umbrella className="h-2.5 w-2.5" />
                                       Off
@@ -1236,6 +1288,7 @@ export default function Availability() {
                 <div className="flex items-center gap-1"><span className="rounded-full px-1.5 py-0.5 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">9 AM–5 PM</span>Hours set</div>
                 <div className="flex items-center gap-1"><span className="rounded-full px-1.5 py-0.5 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">No</span>Unavailable</div>
                 <div className="flex items-center gap-1"><span className="rounded-full px-1.5 py-0.5 bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400">Off</span>Time off</div>
+                <div className="flex items-center gap-1"><span className="rounded-full px-1.5 py-0.5 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">Avail*</span>Pending approval — click to approve</div>
               </div>
             </CardContent>
           </Card>
@@ -1249,6 +1302,18 @@ export default function Availability() {
                 <span className="inline-flex items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-[10px] font-bold min-w-[18px] h-[18px] px-1">
                   {totalPendingCount}
                 </span>
+              )}
+              {totalPendingCount > 1 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="ml-auto h-7 text-xs border-green-400 text-green-700 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950/20 gap-1"
+                  disabled={approveAllPending}
+                  onClick={handleApproveAll}
+                >
+                  {approveAllPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+                  Approve All ({totalPendingCount})
+                </Button>
               )}
             </div>
 
