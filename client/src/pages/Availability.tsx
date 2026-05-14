@@ -21,7 +21,7 @@ import {
   Sun, Sunset, Moon, Clock, Check, Minus, ChevronLeft, ChevronRight,
   StickyNote, Plus, X, Umbrella, Thermometer, User, CalendarMinus,
   MoreHorizontal, MessageSquare, CalendarCheck, Save, Loader2, CalendarDays, Wand2,
-  Ban, RefreshCcw, Repeat, Sparkles
+  Ban, RefreshCcw, Repeat, Sparkles, Users, CalendarRange, CheckCircle2, XCircle
 } from "lucide-react";
 import type { UserAvailability, TimeOffRequest, AvailabilityTemplate, TemplateSlot, TemplateSlotNew, TemplateSlotLegacy } from "@shared/schema";
 
@@ -349,6 +349,38 @@ export default function Availability() {
 
   const isDesktop = useIsDesktop();
 
+  // ── Manager / team toggle ───────────────────────────────────────────────────
+  const roleName = user?.role?.name;
+  const isManagerOrAbove = ['owner', 'admin', 'manager', 'assistant_manager'].includes(roleName ?? '');
+
+  const [viewMode, setViewMode] = useState<'my' | 'team'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('availability_view_mode');
+      if (saved === 'team' || saved === 'my') return saved;
+    }
+    return 'my';
+  });
+
+  // Once the user role is known, enforce 'my' for non-managers (handles auth hydration timing)
+  useEffect(() => {
+    if (user && !isManagerOrAbove && viewMode === 'team') {
+      setViewMode('my');
+    }
+  }, [user?.id, isManagerOrAbove]);
+
+  const handleViewModeChange = (mode: 'my' | 'team') => {
+    setViewMode(mode);
+    localStorage.setItem('availability_view_mode', mode);
+  };
+
+  // ── Team grid week state ────────────────────────────────────────────────────
+  const [teamWeek, setTeamWeek] = useState(new Date());
+  const teamWeekDates = useMemo(() => getWeekDates(teamWeek), [teamWeek]);
+  const teamWeekStart = formatDateKey(teamWeekDates[0]);
+  const teamWeekEnd = formatDateKey(teamWeekDates[6]);
+
+  // ── Per-card approval loading state ────────────────────────────────────────
+  const [approvingIds, setApprovingIds] = useState<Set<string>>(new Set());
 
   // ── New calendar state ──────────────────────────────────────────────────────
   const [calViewMonth, setCalViewMonth] = useState(new Date());
@@ -426,6 +458,102 @@ export default function Availability() {
     for (const e of calendarData) map[e.date] = e;
     return map;
   }, [calendarData]);
+
+  // ── Team view queries (manager-only) ─────────────────────────────────────────
+  interface TeamEntryRow {
+    userId: string;
+    available: boolean;
+    unavailable: boolean;
+    startTime: string | null;
+    endTime: string | null;
+    setByManagerId: string | null;
+    source: 'time_off' | 'override' | 'template' | 'default';
+  }
+
+  interface PendingOverride {
+    id: string;
+    userId: string;
+    date: string;
+    startTime: string | null;
+    endTime: string | null;
+    unavailable: boolean;
+    status: string;
+    approvalNote: string | null;
+    createdAt: string;
+    firstName: string | null;
+    lastName: string | null;
+    email: string | null;
+  }
+
+  interface StoreUser {
+    id: string;
+    firstName: string | null;
+    lastName: string | null;
+    email: string | null;
+  }
+
+  const { data: teamCalendarData = {}, isLoading: teamCalendarLoading } = useQuery<Record<string, TeamEntryRow[]>>({
+    queryKey: ['/api/availability/calendar/team', teamWeekStart, teamWeekEnd],
+    queryFn: async () => {
+      const res = await apiRequest('GET', `/api/availability/calendar/team?start=${teamWeekStart}&end=${teamWeekEnd}`);
+      return res.json();
+    },
+    enabled: isManagerOrAbove && viewMode === 'team',
+  });
+
+  const { data: pendingOverrides = [], isLoading: pendingOverridesLoading } = useQuery<PendingOverride[]>({
+    queryKey: ['/api/availability/pending-approvals'],
+    queryFn: async () => {
+      const res = await apiRequest('GET', '/api/availability/pending-approvals');
+      return res.json();
+    },
+    enabled: isManagerOrAbove,
+  });
+
+  const { data: allTimeOffRequests = [], isLoading: allTimeOffLoading } = useQuery<TimeOffRequest[]>({
+    queryKey: ['/api/time-off-requests', 'all'],
+    queryFn: async () => {
+      const res = await apiRequest('GET', '/api/time-off-requests?all=true');
+      return res.json();
+    },
+    enabled: isManagerOrAbove,
+  });
+
+  const { data: storeUsers = [] } = useQuery<StoreUser[]>({
+    queryKey: ['/api/users'],
+    queryFn: async () => {
+      const res = await apiRequest('GET', '/api/users');
+      return res.json();
+    },
+    enabled: isManagerOrAbove && viewMode === 'team',
+  });
+
+  const pendingTimeOff = useMemo(
+    () => allTimeOffRequests.filter(r => r.status === 'pending'),
+    [allTimeOffRequests]
+  );
+
+  const totalPendingCount = pendingOverrides.length + pendingTimeOff.length;
+
+  const userNameMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const u of storeUsers) {
+      const name = [u.firstName, u.lastName].filter(Boolean).join(' ') || u.email || u.id;
+      map[u.id] = name;
+    }
+    for (const o of pendingOverrides) {
+      if (!map[o.userId]) {
+        map[o.userId] = [o.firstName, o.lastName].filter(Boolean).join(' ') || o.email || o.userId;
+      }
+    }
+    return map;
+  }, [storeUsers, pendingOverrides]);
+
+  const teamUserIds = useMemo(() => {
+    const ids = new Set<string>();
+    Object.values(teamCalendarData).forEach(entries => entries.forEach(e => ids.add(e.userId)));
+    return Array.from(ids);
+  }, [teamCalendarData]);
 
   // ── Effects: sync server data → local state ─────────────────────────────────
   // Sync weekly availability from server (reset auto-fill UI state when new data loads)
@@ -637,6 +765,68 @@ export default function Availability() {
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to clear.", variant: "destructive" });
+    },
+  });
+
+  const reviewOverrideMutation = useMutation({
+    mutationFn: async ({ id, action }: { id: string; action: 'approve' | 'reject' }) => {
+      await apiRequest('PATCH', `/api/availability/overrides/${id}/review`, { action });
+    },
+    onMutate: async ({ id }) => {
+      setApprovingIds(prev => new Set(prev).add(id));
+      // Optimistically remove the card from the pending list
+      await queryClient.cancelQueries({ queryKey: ['/api/availability/pending-approvals'] });
+      const previous = queryClient.getQueryData<PendingOverride[]>(['/api/availability/pending-approvals']);
+      queryClient.setQueryData<PendingOverride[]>(['/api/availability/pending-approvals'], (old = []) =>
+        old.filter(o => o.id !== id)
+      );
+      return { previous };
+    },
+    onSuccess: (_, { action }) => {
+      toast({ title: action === 'approve' ? "Approved" : "Denied", description: "Availability request updated." });
+      queryClient.invalidateQueries({ queryKey: ['/api/availability/pending-approvals'] });
+      invalidatePrefix('/api/availability/calendar/team');
+    },
+    onError: (_, { action }, context: any) => {
+      if (context?.previous !== undefined) {
+        queryClient.setQueryData(['/api/availability/pending-approvals'], context.previous);
+      }
+      toast({ title: "Error", description: `Failed to ${action === 'approve' ? 'approve' : 'deny'} request.`, variant: "destructive" });
+    },
+    onSettled: (_, __, { id }) => {
+      setApprovingIds(prev => { const s = new Set(prev); s.delete(id); return s; });
+    },
+  });
+
+  const reviewTimeOffMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: 'approved' | 'denied' }) => {
+      await apiRequest('PATCH', `/api/time-off-requests/${id}`, { status });
+    },
+    onMutate: async ({ id }) => {
+      setApprovingIds(prev => new Set(prev).add(`to-${id}`));
+      // Optimistically remove the card from the pending time-off list
+      await queryClient.cancelQueries({ queryKey: ['/api/time-off-requests', 'all'] });
+      const previous = queryClient.getQueryData<TimeOffRequest[]>(['/api/time-off-requests', 'all']);
+      queryClient.setQueryData<TimeOffRequest[]>(['/api/time-off-requests', 'all'], (old = []) =>
+        old.filter(r => r.id !== id)
+      );
+      return { previous };
+    },
+    onSuccess: (_, { status }) => {
+      toast({ title: status === 'approved' ? "Approved" : "Denied", description: "Time-off request updated." });
+      queryClient.invalidateQueries({ queryKey: ['/api/time-off-requests', 'all'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/time-off-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/availability/pending-approvals'] });
+      invalidatePrefix('/api/availability/calendar/team');
+    },
+    onError: (_, { status }, context: any) => {
+      if (context?.previous !== undefined) {
+        queryClient.setQueryData(['/api/time-off-requests', 'all'], context.previous);
+      }
+      toast({ title: "Error", description: `Failed to ${status === 'approved' ? 'approve' : 'deny'} time-off request.`, variant: "destructive" });
+    },
+    onSettled: (_, __, { id }) => {
+      setApprovingIds(prev => { const s = new Set(prev); s.delete(`to-${id}`); return s; });
     },
   });
 
@@ -873,6 +1063,321 @@ export default function Availability() {
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-background p-4 md:p-6">
+      {/* ── Manager/Team toggle ─────────────────────────────────────────────── */}
+      {isManagerOrAbove && (
+        <div className="mb-4 flex rounded-xl border bg-muted/40 p-1 gap-1">
+          <button
+            onClick={() => handleViewModeChange('my')}
+            className={cn(
+              "flex-1 flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold transition-all",
+              viewMode === 'my'
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <User className="h-4 w-4" />
+            My Availability
+          </button>
+          <button
+            onClick={() => handleViewModeChange('team')}
+            className={cn(
+              "flex-1 flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold transition-all relative",
+              viewMode === 'team'
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Users className="h-4 w-4" />
+            Team View
+            {totalPendingCount > 0 && (
+              <span className={cn(
+                "ml-0.5 inline-flex items-center justify-center rounded-full text-[10px] font-bold min-w-[18px] h-[18px] px-1",
+                viewMode === 'team'
+                  ? "bg-white text-primary"
+                  : "bg-destructive text-destructive-foreground"
+              )}>
+                {totalPendingCount}
+              </span>
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* ── Team View ──────────────────────────────────────────────────────── */}
+      {isManagerOrAbove && viewMode === 'team' && (
+        <div className="space-y-4">
+          {/* Team availability grid */}
+          <Card>
+            <CardContent className="p-4">
+              {/* Week navigation */}
+              <div className="flex items-center justify-between mb-4">
+                <button
+                  onClick={() => setTeamWeek(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; })}
+                  className="p-1.5 rounded-md hover:bg-muted transition-colors"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <span className="text-sm font-semibold">
+                  {teamWeekDates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  {' – '}
+                  {teamWeekDates[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                </span>
+                <button
+                  onClick={() => setTeamWeek(d => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; })}
+                  className="p-1.5 rounded-md hover:bg-muted transition-colors"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+
+              {teamCalendarLoading ? (
+                <div className="space-y-2">
+                  {[1,2,3,4].map(i => (
+                    <div key={i} className="h-10 bg-muted/50 rounded-lg animate-pulse" />
+                  ))}
+                </div>
+              ) : teamUserIds.length === 0 ? (
+                <div className="text-center py-8 text-sm text-muted-foreground">
+                  <Users className="h-8 w-8 mx-auto mb-2 text-muted-foreground/40" />
+                  No team members found
+                </div>
+              ) : (
+                <div className="overflow-x-auto -mx-4 px-4">
+                  <table className="w-full text-xs border-collapse" style={{ minWidth: '480px' }}>
+                    <thead>
+                      <tr>
+                        <th className="sticky left-0 bg-background z-10 text-left py-1.5 pr-3 font-medium text-muted-foreground w-28 min-w-[7rem]">
+                          Employee
+                        </th>
+                        {teamWeekDates.map((date, colIdx) => (
+                          <th
+                            key={colIdx}
+                            className={cn(
+                              "text-center py-1.5 px-1 font-medium text-muted-foreground",
+                              colIdx % 2 === 0 ? "bg-background" : "bg-muted/30"
+                            )}
+                          >
+                            <span className="block">{DAY_NAMES[date.getDay()]}</span>
+                            <span className="block text-[10px] font-normal">
+                              {date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}
+                            </span>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {teamUserIds.map((uid) => {
+                        const name = userNameMap[uid] || uid;
+                        return (
+                          <tr key={uid} className="border-t border-border/40">
+                            <td className="sticky left-0 bg-background z-10 py-2 pr-3 font-medium text-foreground truncate max-w-[7rem]" title={name}>
+                              {name.split(' ')[0]}
+                              {name.includes(' ') && (
+                                <span className="text-muted-foreground"> {name.split(' ').slice(1).join(' ')}</span>
+                              )}
+                            </td>
+                            {teamWeekDates.map((date, colIdx) => {
+                              const dateStr = formatDateKey(date);
+                              const entries = teamCalendarData[dateStr] ?? [];
+                              const entry = entries.find(e => e.userId === uid);
+                              const isTimeOff = entry?.source === 'time_off';
+                              const isUnavailable = !!(entry?.unavailable);
+                              const isAvailable = entry?.available && !isTimeOff && !isUnavailable;
+                              const hasHours = isAvailable && entry?.startTime && entry?.endTime;
+
+                              return (
+                                <td
+                                  key={colIdx}
+                                  className={cn(
+                                    "py-2 px-1 text-center align-middle",
+                                    colIdx % 2 === 0 ? "bg-background" : "bg-muted/30"
+                                  )}
+                                >
+                                  {isTimeOff ? (
+                                    <span className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400">
+                                      <Umbrella className="h-2.5 w-2.5" />
+                                      Off
+                                    </span>
+                                  ) : isUnavailable ? (
+                                    <span className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                                      <Ban className="h-2.5 w-2.5" />
+                                      No
+                                    </span>
+                                  ) : hasHours ? (
+                                    <span className="inline-flex flex-col items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                                      {formatTimeShort(entry!.startTime!)}
+                                      <span className="text-[9px] font-normal opacity-80">–{formatTimeShort(entry!.endTime!)}</span>
+                                    </span>
+                                  ) : isAvailable ? (
+                                    <span className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                                      <Check className="h-2.5 w-2.5" />
+                                      Avail
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-green-50 text-green-600 dark:bg-green-950/20 dark:text-green-500">
+                                      <Check className="h-2.5 w-2.5 opacity-60" />
+                                      Open
+                                    </span>
+                                  )}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Grid legend */}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-3 text-[10px] text-muted-foreground">
+                <div className="flex items-center gap-1"><span className="rounded-full px-1.5 py-0.5 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">Open</span>Available by default</div>
+                <div className="flex items-center gap-1"><span className="rounded-full px-1.5 py-0.5 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">9 AM–5 PM</span>Hours set</div>
+                <div className="flex items-center gap-1"><span className="rounded-full px-1.5 py-0.5 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">No</span>Unavailable</div>
+                <div className="flex items-center gap-1"><span className="rounded-full px-1.5 py-0.5 bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400">Off</span>Time off</div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Pending approvals */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <CalendarRange className="h-4 w-4 text-muted-foreground" />
+              <h3 className="text-sm font-semibold">Pending Approvals</h3>
+              {totalPendingCount > 0 && (
+                <span className="inline-flex items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-[10px] font-bold min-w-[18px] h-[18px] px-1">
+                  {totalPendingCount}
+                </span>
+              )}
+            </div>
+
+            {(pendingOverridesLoading || allTimeOffLoading) ? (
+              <div className="space-y-2">
+                {[1,2].map(i => <div key={i} className="h-20 bg-muted/50 rounded-xl animate-pulse" />)}
+              </div>
+            ) : totalPendingCount === 0 ? (
+              <Card>
+                <CardContent className="p-8 text-center">
+                  <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-green-500/60" />
+                  <p className="text-sm font-medium text-muted-foreground">All caught up</p>
+                  <p className="text-xs text-muted-foreground mt-1">No pending requests to review</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-3">
+                {/* Pending availability overrides */}
+                {pendingOverrides.map(override => {
+                  const isBusy = approvingIds.has(override.id);
+                  const empName = userNameMap[override.userId] || [override.firstName, override.lastName].filter(Boolean).join(' ') || override.email || 'Unknown';
+                  const changeDesc = override.unavailable
+                    ? 'Mark as unavailable'
+                    : (override.startTime && override.endTime)
+                      ? `Available ${formatTimeShort(override.startTime)} – ${formatTimeShort(override.endTime)}`
+                      : 'Availability change';
+                  const dateLabel = new Date(override.date + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+
+                  return (
+                    <Card key={override.id}>
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between gap-2 mb-1">
+                          <div>
+                            <p className="text-sm font-semibold">{empName}</p>
+                            <p className="text-xs text-muted-foreground">Availability change · {dateLabel}</p>
+                          </div>
+                          <span className="text-xs rounded-full px-2 py-0.5 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 shrink-0">
+                            Pending
+                          </span>
+                        </div>
+                        <p className="text-xs text-foreground/80 mb-3 font-medium">{changeDesc}</p>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1 h-8 text-xs border-green-400 text-green-700 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950/20 gap-1"
+                            disabled={isBusy}
+                            onClick={() => reviewOverrideMutation.mutate({ id: override.id, action: 'approve' })}
+                          >
+                            {isBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+                            Approve
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1 h-8 text-xs border-red-400 text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/20 gap-1"
+                            disabled={isBusy}
+                            onClick={() => reviewOverrideMutation.mutate({ id: override.id, action: 'reject' })}
+                          >
+                            {isBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <XCircle className="h-3 w-3" />}
+                            Deny
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+
+                {/* Pending time-off requests */}
+                {pendingTimeOff.map(req => {
+                  const toKey = `to-${req.id}`;
+                  const isBusy = approvingIds.has(toKey);
+                  const empName = userNameMap[req.userId] || req.userId;
+                  const typeInfo = timeOffTypes.find(t => t.value === req.type);
+                  const typeLabel = typeInfo?.label || req.type;
+                  const startLabel = new Date(req.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                  const endLabel = new Date(req.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                  const dateLabel = req.startDate === req.endDate ? startLabel : `${startLabel} – ${endLabel}`;
+
+                  return (
+                    <Card key={req.id}>
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between gap-2 mb-1">
+                          <div>
+                            <p className="text-sm font-semibold">{empName}</p>
+                            <p className="text-xs text-muted-foreground">{typeLabel} · {dateLabel}</p>
+                          </div>
+                          <span className="text-xs rounded-full px-2 py-0.5 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 shrink-0">
+                            Pending
+                          </span>
+                        </div>
+                        {req.reason && (
+                          <p className="text-xs text-muted-foreground italic mb-3">"{req.reason}"</p>
+                        )}
+                        {!req.reason && <div className="mb-2" />}
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1 h-8 text-xs border-green-400 text-green-700 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950/20 gap-1"
+                            disabled={isBusy}
+                            onClick={() => reviewTimeOffMutation.mutate({ id: req.id, status: 'approved' })}
+                          >
+                            {isBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+                            Approve
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1 h-8 text-xs border-red-400 text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/20 gap-1"
+                            disabled={isBusy}
+                            onClick={() => reviewTimeOffMutation.mutate({ id: req.id, status: 'denied' })}
+                          >
+                            {isBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <XCircle className="h-3 w-3" />}
+                            Deny
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── My Availability (default) — shown when viewMode = 'my' OR for non-managers ── */}
+      {(!isManagerOrAbove || viewMode === 'my') && (
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="grid w-full grid-cols-2 max-w-sm">
           <TabsTrigger value="availability" className="text-sm flex items-center gap-1.5">
@@ -1509,6 +2014,7 @@ export default function Availability() {
           )}
         </TabsContent>
       </Tabs>
+      )}
 
       {/* Time-Off Request Dialog */}
       <Dialog open={showTimeOffForm} onOpenChange={setShowTimeOffForm}>
