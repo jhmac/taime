@@ -1185,36 +1185,21 @@ function HorizontalDayRow({
     return h24 < 12 ? `${h24} AM` : `${h24 - 12} PM`;
   }
 
-  // Staffing headcount per hour — confirmed + pending (AI) shifts for this day
+  // Staffing headcount per hour — derived directly from `laned` (already filtered
+  // to this day's confirmed + pending items by layoutHLanes/layoutUnified).
+  // item.startMs / item.endMs are plain UTC ms; minutesFromMidnight converts to
+  // local-time minutes, matching how shift blocks are positioned on the timeline.
   const staffingTotals = useMemo(() => {
-    const dayStr = formatLocalDate(date);
     return Array.from({ length: TOTAL_HOURS }, (_, i) => {
       const slotStartMin = (DAY_START_HOUR + i) * 60;
       const slotEndMin   = slotStartMin + 60;
-
-      // Confirmed shifts (Schedule): startTime is a timestamp string → parse local hours
-      const confirmedCount = confirmed.filter(s => {
-        const sStart    = new Date(s.startTime);
-        const sEnd      = new Date(s.endTime);
-        const sStartMin = sStart.getHours() * 60 + sStart.getMinutes();
-        const sEndMin   = sEnd.getHours()   * 60 + sEnd.getMinutes();
-        return sStartMin < slotEndMin && sEndMin > slotStartMin;
+      return laned.filter(({ item }) => {
+        const startMin = minutesFromMidnight(new Date(item.startMs));
+        const endMin   = minutesFromMidnight(new Date(item.endMs));
+        return startMin < slotEndMin && endMin > slotStartMin;
       }).length;
-
-      // Pending (AI) shifts (AiScheduleEntry): startTime/endTime are "HH:MM" local strings;
-      // date is "YYYY-MM-DD" — filter to this row's date before comparing times.
-      const pendingCount = pending.filter(e => {
-        if (e.date !== dayStr) return false;
-        const [sh, sm] = e.startTime.split(':').map(Number);
-        const [eh, em] = e.endTime.split(':').map(Number);
-        const eStartMin = sh * 60 + sm;
-        const eEndMin   = eh * 60 + em;
-        return eStartMin < slotEndMin && eEndMin > slotStartMin;
-      }).length;
-
-      return confirmedCount + pendingCount;
     });
-  }, [confirmed, pending, date]);
+  }, [laned]);
   const hasStaffing = staffingTotals.some(v => v > 0);
   const peakStaffIdx  = hasStaffing ? staffingTotals.indexOf(Math.max(...staffingTotals)) : -1;
   const peakStaffHour = peakStaffIdx >= 0 ? DAY_START_HOUR + peakStaffIdx : -1;
