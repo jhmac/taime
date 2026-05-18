@@ -1185,21 +1185,36 @@ function HorizontalDayRow({
     return h24 < 12 ? `${h24} AM` : `${h24 - 12} PM`;
   }
 
-  // Staffing headcount per hour — computed client-side from confirmed schedules
+  // Staffing headcount per hour — confirmed + pending (AI) shifts for this day
   const staffingTotals = useMemo(() => {
-    const counts = Array.from({ length: TOTAL_HOURS }, (_, i) => {
+    const dayStr = formatLocalDate(date);
+    return Array.from({ length: TOTAL_HOURS }, (_, i) => {
       const slotStartMin = (DAY_START_HOUR + i) * 60;
       const slotEndMin   = slotStartMin + 60;
-      return confirmed.filter(s => {
-        const sStart = new Date(s.startTime);
-        const sEnd   = new Date(s.endTime);
+
+      // Confirmed shifts (Schedule): startTime is a timestamp string → parse local hours
+      const confirmedCount = confirmed.filter(s => {
+        const sStart    = new Date(s.startTime);
+        const sEnd      = new Date(s.endTime);
         const sStartMin = sStart.getHours() * 60 + sStart.getMinutes();
-        const sEndMin   = sEnd.getHours() * 60 + sEnd.getMinutes();
+        const sEndMin   = sEnd.getHours()   * 60 + sEnd.getMinutes();
         return sStartMin < slotEndMin && sEndMin > slotStartMin;
       }).length;
+
+      // Pending (AI) shifts (AiScheduleEntry): startTime/endTime are "HH:MM" local strings;
+      // date is "YYYY-MM-DD" — filter to this row's date before comparing times.
+      const pendingCount = pending.filter(e => {
+        if (e.date !== dayStr) return false;
+        const [sh, sm] = e.startTime.split(':').map(Number);
+        const [eh, em] = e.endTime.split(':').map(Number);
+        const eStartMin = sh * 60 + sm;
+        const eEndMin   = eh * 60 + em;
+        return eStartMin < slotEndMin && eEndMin > slotStartMin;
+      }).length;
+
+      return confirmedCount + pendingCount;
     });
-    return counts;
-  }, [confirmed]);
+  }, [confirmed, pending, date]);
   const hasStaffing = staffingTotals.some(v => v > 0);
   const peakStaffIdx  = hasStaffing ? staffingTotals.indexOf(Math.max(...staffingTotals)) : -1;
   const peakStaffHour = peakStaffIdx >= 0 ? DAY_START_HOUR + peakStaffIdx : -1;
