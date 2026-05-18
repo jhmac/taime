@@ -97,6 +97,14 @@ interface Props {
   onCreateShift: (date: string, startTime: string) => void;
   isAdmin: boolean;
   selectedScheduleId?: string | null;
+  /** When true the internal toolbar row is suppressed — parent renders a merged sticky bar. */
+  hideToolbar?: boolean;
+  dayViewDate?: Date;
+  onDayViewDateChange?: (d: Date) => void;
+  monthViewDate?: Date;
+  onMonthViewDateChange?: (d: Date) => void;
+  yearViewYear?: number;
+  onYearViewYearChange?: (y: number) => void;
 }
 
 // Overlap layout
@@ -1609,6 +1617,13 @@ export default function ScheduleTimelineView({
   onCreateShift,
   isAdmin,
   selectedScheduleId,
+  hideToolbar = false,
+  dayViewDate: dayViewDateProp,
+  onDayViewDateChange,
+  monthViewDate: monthViewDateProp,
+  onMonthViewDateChange,
+  yearViewYear: yearViewYearProp,
+  onYearViewYearChange,
 }: Props) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -1687,10 +1702,16 @@ export default function ScheduleTimelineView({
   }, [isMobile, subView, onSubViewChange]);
 
   // Day view date
-  const [dayViewDate, setDayViewDate] = useState<Date>(() => {
+  const [localDayViewDate, setLocalDayViewDate] = useState<Date>(() => {
     const today = new Date();
     return weekDates.find(d => d.toDateString() === today.toDateString()) || weekDates[0] || today;
   });
+  const dayViewDate = dayViewDateProp ?? localDayViewDate;
+  const setDayViewDate = (updater: Date | ((prev: Date) => Date)) => {
+    const next = typeof updater === 'function' ? updater(dayViewDate) : updater;
+    setLocalDayViewDate(next);
+    onDayViewDateChange?.(next);
+  };
 
   // Mobile week view: center day (starts at today, falls back to first of week)
   const [mobileDayCenter, setMobileDayCenter] = useState<Date>(() => {
@@ -1729,10 +1750,22 @@ export default function ScheduleTimelineView({
   }, []);
 
   // Month view
-  const [monthViewDate, setMonthViewDate] = useState<Date>(() => weekDates[0] || new Date());
+  const [localMonthViewDate, setLocalMonthViewDate] = useState<Date>(() => weekDates[0] || new Date());
+  const monthViewDate = monthViewDateProp ?? localMonthViewDate;
+  const setMonthViewDate = (updater: Date | ((prev: Date) => Date)) => {
+    const next = typeof updater === 'function' ? updater(monthViewDate) : updater;
+    setLocalMonthViewDate(next);
+    onMonthViewDateChange?.(next);
+  };
 
   // Year view
-  const [yearViewYear, setYearViewYear] = useState<number>(() => (weekDates[0] || new Date()).getFullYear());
+  const [localYearViewYear, setLocalYearViewYear] = useState<number>(() => (weekDates[0] || new Date()).getFullYear());
+  const yearViewYear = yearViewYearProp ?? localYearViewYear;
+  const setYearViewYear = (updater: number | ((prev: number) => number)) => {
+    const next = typeof updater === 'function' ? updater(yearViewYear) : updater;
+    setLocalYearViewYear(next);
+    onYearViewYearChange?.(next);
+  };
 
   // Keep dayViewDate in sync with week navigation
   useEffect(() => {
@@ -2048,38 +2081,50 @@ export default function ScheduleTimelineView({
 
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden relative" style={{ touchAction: 'pan-x pan-y' }}>
-      {/* Toolbar */}
-      <div className="flex items-center justify-between px-2 sm:px-4 py-2 border-b bg-background/95 gap-2 flex-wrap">
-        {/* View switcher */}
-        <div className="flex items-center rounded-md border overflow-hidden flex-shrink-0">
-          {subViewOptions.map(sv => (
+      {/* Toolbar — hidden when parent renders the merged single sticky bar */}
+      {!hideToolbar && (
+        <div className="flex items-center justify-between px-2 sm:px-4 py-2 border-b bg-background/95 gap-2 flex-wrap">
+          {/* View switcher */}
+          <div className="flex items-center rounded-md border overflow-hidden flex-shrink-0">
+            {subViewOptions.map(sv => (
+              <button
+                key={sv.key}
+                onClick={() => onSubViewChange(sv.key)}
+                className={cn(
+                  "px-3 text-xs font-medium border-r last:border-r-0 transition-colors",
+                  "min-h-[44px] min-w-[44px]",
+                  effectiveSubView === sv.key
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-background text-muted-foreground hover:bg-muted"
+                )}
+              >
+                {sv.label}
+              </button>
+            ))}
+          </div>
+          {renderNav()}
+          {/* Reset zoom — only shown in day/week views where pinch-zoom is active */}
+          {(effectiveSubView === 'day' || effectiveSubView === 'week') && hourPx !== defaultHourPx && (
             <button
-              key={sv.key}
-              onClick={() => onSubViewChange(sv.key)}
-              className={cn(
-                "px-3 text-xs font-medium border-r last:border-r-0 transition-colors",
-                "min-h-[44px] min-w-[44px]",
-                effectiveSubView === sv.key
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-background text-muted-foreground hover:bg-muted"
-              )}
+              onClick={handleResetZoom}
+              className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded border border-border hover:bg-muted transition-colors flex-shrink-0"
+              title="Reset zoom to default"
             >
-              {sv.label}
+              Reset zoom
             </button>
-          ))}
+          )}
         </div>
-        {renderNav()}
-        {/* Reset zoom — only shown in day/week views where pinch-zoom is active */}
-        {(effectiveSubView === 'day' || effectiveSubView === 'week') && hourPx !== defaultHourPx && (
-          <button
-            onClick={handleResetZoom}
-            className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded border border-border hover:bg-muted transition-colors flex-shrink-0"
-            title="Reset zoom to default"
-          >
-            Reset zoom
-          </button>
-        )}
-      </div>
+      )}
+      {/* Floating Reset zoom pill — shown when toolbar is hidden and user has zoomed */}
+      {hideToolbar && (effectiveSubView === 'day' || effectiveSubView === 'week') && hourPx !== defaultHourPx && (
+        <button
+          onClick={handleResetZoom}
+          className="absolute top-2 right-2 z-30 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded border border-border bg-background/90 hover:bg-muted transition-colors shadow-sm"
+          title="Reset zoom to default"
+        >
+          Reset zoom
+        </button>
+      )}
 
       {/* Content — slide animation wrapper; explicit max-height keeps timeline inside viewport on mobile */}
       <div

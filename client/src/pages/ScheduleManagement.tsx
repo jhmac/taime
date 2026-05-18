@@ -662,6 +662,12 @@ export default function ScheduleManagement() {
     try { localStorage.setItem('scheduleSubView', sv); } catch {}
   };
 
+  // Lifted timeline date state — controlled by the merged sticky bar so the
+  // parent can render navigation for all four sub-views without a second toolbar row.
+  const [tlDayViewDate, setTlDayViewDate] = useState<Date>(() => new Date());
+  const [tlMonthViewDate, setTlMonthViewDate] = useState<Date>(() => new Date());
+  const [tlYearViewYear, setTlYearViewYear] = useState<number>(() => new Date().getFullYear());
+
   const [isTouchDevice, setIsTouchDevice] = useState(false);
   useEffect(() => {
     const check = () => {
@@ -1820,36 +1826,19 @@ export default function ScheduleManagement() {
   // ===== ADMIN VIEW - Homebase-style Grid =====
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      {/* Top Navigation Bar */}
-      <div className="sticky top-0 z-10 bg-background border-b px-4 py-3">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-1.5 sm:gap-2">
-            {scheduleView !== 'timeline' && (<>
-              <Button variant="outline" size="sm" className="text-xs font-medium h-8 px-2.5" onClick={() => setSelectedWeek(0)}>
-                Today
-              </Button>
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSelectedWeek(selectedWeek - 1)}>
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <div className="hidden sm:flex items-center gap-1 bg-muted rounded-md px-3 py-1.5">
-                <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-sm font-medium">{formatWeekRange()}</span>
-              </div>
-              {/* Mobile: compact week label */}
-              <span className="sm:hidden text-xs font-medium text-muted-foreground tabular-nums">
-                {weekDates[0]?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}–{weekDates[6]?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-              </span>
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSelectedWeek(selectedWeek + 1)}>
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </>)}
+      {/* ── Single sticky toolbar (all controls in one compact row) ── */}
+      <div className="sticky top-0 z-10 bg-background border-b px-3 py-1.5">
+        <div className="flex items-center justify-between gap-2 min-w-0">
+
+          {/* LEFT: Roster/Timeline toggle + (timeline) sub-view tabs + date nav */}
+          <div className="flex items-center gap-1.5 min-w-0 flex-shrink">
 
             {/* Roster / Timeline toggle */}
-            <div className="flex items-center rounded-md border overflow-hidden ml-2">
+            <div className="flex items-center rounded-md border overflow-hidden flex-shrink-0">
               <button
                 onClick={() => handleViewChange('roster')}
                 className={cn(
-                  "flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border-r transition-colors",
+                  "flex items-center gap-1 px-2 py-1.5 text-xs font-medium border-r transition-colors",
                   scheduleView === 'roster'
                     ? "bg-primary text-primary-foreground"
                     : "bg-background text-muted-foreground hover:bg-muted"
@@ -1862,7 +1851,7 @@ export default function ScheduleManagement() {
               <button
                 onClick={() => handleViewChange('timeline')}
                 className={cn(
-                  "flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium transition-colors",
+                  "flex items-center gap-1 px-2 py-1.5 text-xs font-medium transition-colors",
                   scheduleView === 'timeline'
                     ? "bg-primary text-primary-foreground"
                     : "bg-background text-muted-foreground hover:bg-muted"
@@ -1873,13 +1862,109 @@ export default function ScheduleManagement() {
                 <span className="hidden sm:inline">Timeline</span>
               </button>
             </div>
+
+            {/* Timeline: sub-view tabs + per-sub-view date navigation */}
+            {scheduleView === 'timeline' && (<>
+              <div className="flex items-center rounded-md border overflow-hidden flex-shrink-0">
+                {(['day', 'week', 'month', 'year'] as const).map(sv => (
+                  <button
+                    key={sv}
+                    onClick={() => handleSubViewChange(sv)}
+                    className={cn(
+                      "px-2.5 py-1.5 text-xs font-medium border-r last:border-r-0 transition-colors capitalize",
+                      scheduleSubView === sv
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-background text-muted-foreground hover:bg-muted"
+                    )}
+                  >
+                    {sv.charAt(0).toUpperCase() + sv.slice(1)}
+                  </button>
+                ))}
+              </div>
+
+              {/* Week date nav */}
+              {scheduleSubView === 'week' && (
+                <div className="flex items-center gap-0.5 flex-shrink-0">
+                  <button className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted" onClick={() => setSelectedWeek(w => w - 1)} aria-label="Previous week">
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </button>
+                  <span className="text-xs font-medium whitespace-nowrap px-1 hidden sm:inline">
+                    {weekDates[0]?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – {weekDates[6]?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </span>
+                  <button className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted" onClick={() => setSelectedWeek(w => w + 1)} aria-label="Next week">
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+
+              {/* Day date nav */}
+              {scheduleSubView === 'day' && (
+                <div className="flex items-center gap-0.5 flex-shrink-0">
+                  <button className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted" onClick={() => setTlDayViewDate(d => { const n = new Date(d); n.setDate(n.getDate() - 1); return n; })} aria-label="Previous day">
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </button>
+                  <span className="text-xs font-medium whitespace-nowrap px-1 hidden sm:inline">
+                    {tlDayViewDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                  </span>
+                  <button className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted" onClick={() => setTlDayViewDate(d => { const n = new Date(d); n.setDate(n.getDate() + 1); return n; })} aria-label="Next day">
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+
+              {/* Month date nav */}
+              {scheduleSubView === 'month' && (
+                <div className="flex items-center gap-0.5 flex-shrink-0">
+                  <button className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted" onClick={() => setTlMonthViewDate(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))} aria-label="Previous month">
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </button>
+                  <span className="text-xs font-medium whitespace-nowrap px-1 hidden sm:inline">
+                    {tlMonthViewDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                  </span>
+                  <button className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted" onClick={() => setTlMonthViewDate(d => new Date(d.getFullYear(), d.getMonth() + 1, 1))} aria-label="Next month">
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+
+              {/* Year date nav */}
+              {scheduleSubView === 'year' && (
+                <div className="flex items-center gap-0.5 flex-shrink-0">
+                  <button className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted" onClick={() => setTlYearViewYear(y => y - 1)} aria-label="Previous year">
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </button>
+                  <span className="text-xs font-medium whitespace-nowrap px-1">{tlYearViewYear}</span>
+                  <button className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted" onClick={() => setTlYearViewYear(y => y + 1)} aria-label="Next year">
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+            </>)}
+
+            {/* Roster: date nav (Today, prev/next, range) */}
+            {scheduleView !== 'timeline' && (<>
+              <Button variant="outline" size="sm" className="text-xs font-medium h-7 px-2 flex-shrink-0" onClick={() => setSelectedWeek(0)}>
+                Today
+              </Button>
+              <button className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted flex-shrink-0" onClick={() => setSelectedWeek(w => w - 1)}>
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </button>
+              <div className="hidden sm:flex items-center gap-1 bg-muted rounded-md px-2.5 py-1 flex-shrink-0">
+                <Calendar className="h-3 w-3 text-muted-foreground" />
+                <span className="text-xs font-medium">{formatWeekRange()}</span>
+              </div>
+              <button className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted flex-shrink-0" onClick={() => setSelectedWeek(w => w + 1)}>
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </>)}
           </div>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {/* Today's Team — always visible */}
+
+          {/* RIGHT: action buttons */}
+          <div className="flex items-center gap-1 flex-shrink-0">
             <Button
               variant={(isMobilePanel ? showMobileSheet : showCommandPanel) ? "default" : "outline"}
               size="sm"
-              className="gap-1.5 text-xs min-h-[44px] sm:min-h-0"
+              className="gap-1 text-xs h-7 px-2"
               onClick={handleCommandPanelToggle}
               title="Open Today's Team panel"
               aria-label="Open Today's Team panel"
@@ -1888,33 +1973,27 @@ export default function ScheduleManagement() {
               {isMobilePanel ? (
                 <Users className="h-3.5 w-3.5" />
               ) : (
-                (showCommandPanel ? <PanelRightClose className="h-3.5 w-3.5" /> : <PanelRightOpen className="h-3.5 w-3.5" />)
+                showCommandPanel ? <PanelRightClose className="h-3.5 w-3.5" /> : <PanelRightOpen className="h-3.5 w-3.5" />
               )}
-              <span className="hidden sm:inline">Today's Team</span>
+              <span className="hidden lg:inline">Today's Team</span>
             </Button>
 
-            {/* AI Auto-Schedule — label hidden on mobile */}
             <Button
               variant="outline"
               size="sm"
-              className="gap-1.5 text-xs border-violet-300 text-violet-700 dark:border-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-900/20 min-h-[44px] sm:min-h-0"
+              className="gap-1 text-xs h-7 px-2 border-violet-300 text-violet-700 dark:border-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-900/20"
               onClick={() => suggestMutation.mutate({ date: todayDateStr })}
               disabled={suggestMutation.isPending}
               title="AI Auto-Schedule"
             >
-              {suggestMutation.isPending ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="h-3.5 w-3.5" />
-              )}
-              <span className="hidden sm:inline">AI Auto-Schedule</span>
+              {suggestMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              <span className="hidden lg:inline">AI Auto-Schedule</span>
             </Button>
 
-            {/* Generate Week — label hidden on mobile */}
             <Button
               variant="outline"
               size="sm"
-              className="gap-1.5 text-xs border-violet-300 text-violet-700 dark:border-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-900/20 min-h-[44px] sm:min-h-0"
+              className="gap-1 text-xs h-7 px-2 border-violet-300 text-violet-700 dark:border-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-900/20"
               onClick={handleAIGenerate}
               disabled={generateMutation.isPending}
               title="Generate an AI schedule for the entire visible week"
@@ -1924,7 +2003,7 @@ export default function ScheduleManagement() {
                 <>
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   {weekGenProgress && (
-                    <span className="hidden sm:inline text-xs tabular-nums">
+                    <span className="hidden lg:inline text-xs tabular-nums">
                       {weekGenProgress.current}/{weekGenProgress.total}
                     </span>
                   )}
@@ -1932,32 +2011,27 @@ export default function ScheduleManagement() {
               ) : (
                 <Wand2 className="h-3.5 w-3.5" />
               )}
-              {!generateMutation.isPending && <span className="hidden sm:inline">Generate Week</span>}
+              {!generateMutation.isPending && <span className="hidden lg:inline">Generate Week</span>}
             </Button>
 
-            {/* Notify Team — label hidden on mobile */}
             <Button
               variant="outline"
               size="sm"
-              className="gap-1.5 text-xs min-h-[44px] sm:min-h-0"
+              className="gap-1 text-xs h-7 px-2"
               onClick={() => notifyTeamMutation.mutate()}
               disabled={notifyTeamMutation.isPending || schedules.length === 0}
               title="Send push notifications to all employees with shifts this week"
             >
-              {notifyTeamMutation.isPending ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Bell className="h-3.5 w-3.5" />
-              )}
-              <span className="hidden sm:inline">Notify Team</span>
+              {notifyTeamMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Bell className="h-3.5 w-3.5" />}
+              <span className="hidden lg:inline">Notify Team</span>
             </Button>
 
-            {/* Add Shift — label visible on sm+ screens, icon-only on mobile */}
-            <Button size="sm" className="gap-1.5 text-xs min-h-[44px] sm:min-h-0" onClick={() => openCreateShift()}>
+            <Button size="sm" className="gap-1 text-xs h-7 px-2" onClick={() => openCreateShift()}>
               <Plus className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Add Shift</span>
             </Button>
           </div>
+
         </div>
       </div>
 
@@ -2000,6 +2074,13 @@ export default function ScheduleManagement() {
             }}
             isAdmin={isAdmin}
             selectedScheduleId={editingSchedule?.id ?? null}
+            hideToolbar={true}
+            dayViewDate={tlDayViewDate}
+            onDayViewDateChange={setTlDayViewDate}
+            monthViewDate={tlMonthViewDate}
+            onMonthViewDateChange={setTlMonthViewDate}
+            yearViewYear={tlYearViewYear}
+            onYearViewYearChange={setTlYearViewYear}
           />
         )}
 
