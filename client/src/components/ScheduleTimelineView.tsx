@@ -1018,20 +1018,32 @@ function HPendingBlock({ item, lane, hourPx }: {
 // ── SalesSparkline ────────────────────────────────────────────────────────────
 // Pure SVG area chart overlaid behind shift blocks in a horizontal day row.
 // X maps to hourPx scale (index 0 = 6 AM … index 16 = 10 PM).
-// Y is normalized to rowHeight with a small padding so the curve never clips.
-function SalesSparkline({ hourlyTotals, hourPx, height }: {
+// Y is normalized independently per series so neither drowns the other.
+function SalesSparkline({ hourlyTotals, staffingTotals, hourPx, height }: {
   hourlyTotals: number[];
+  staffingTotals?: number[];
   hourPx: number;
   height: number;
 }) {
-  const n   = hourlyTotals.length;
-  const max = Math.max(...hourlyTotals, 1);
-  const pad = 6; // px breathing room at top
+  const n      = hourlyTotals.length;
+  const maxRev = Math.max(...hourlyTotals, 1);
+  const pad    = 6; // px breathing room at top
 
   const pts = hourlyTotals.map((v, i) => ({
     x: i * hourPx,
-    y: height - pad - ((v / max) * (height - pad * 2)),
+    y: height - pad - ((v / maxRev) * (height - pad * 2)),
   }));
+
+  // Staffing line — independent Y normalization
+  const staffPts = staffingTotals && staffingTotals.length === n
+    ? (() => {
+        const maxStaff = Math.max(...staffingTotals, 1);
+        return staffingTotals.map((v, i) => ({
+          x: i * hourPx,
+          y: height - pad - ((v / maxStaff) * (height - pad * 2)),
+        }));
+      })()
+    : null;
 
   // Catmull-Rom → Cubic Bézier conversion for a smooth curve
   function buildPath(points: { x: number; y: number }[]): string {
@@ -1057,6 +1069,8 @@ function SalesSparkline({ hourlyTotals, hourPx, height }: {
   const areaPath = `${linePath} L ${last.x},${height} L ${first.x},${height} Z`;
   const totalWidth = (n - 1) * hourPx;
 
+  const staffPath = staffPts ? buildPath(staffPts) : null;
+
   if (!linePath) return null;
 
   return (
@@ -1067,6 +1081,7 @@ function SalesSparkline({ hourlyTotals, hourPx, height }: {
       aria-hidden="true"
       style={{ zIndex: 0 }}
     >
+      {/* Revenue area + line */}
       <path
         d={areaPath}
         className="fill-blue-500/[0.08] dark:fill-blue-400/[0.11]"
@@ -1080,6 +1095,18 @@ function SalesSparkline({ hourlyTotals, hourPx, height }: {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+      {/* Staffing line — amber/orange, faint, no fill */}
+      {staffPath && (
+        <path
+          d={staffPath}
+          fill="none"
+          className="stroke-amber-500/[0.45] dark:stroke-amber-400/[0.55]"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeDasharray="4 2"
+        />
+      )}
     </svg>
   );
 }
@@ -1148,17 +1175,36 @@ function HorizontalDayRow({
     return h24 < 12 ? `${h24} AM` : `${h24 - 12} PM`;
   }
 
+  // Staffing headcount per hour — computed client-side from confirmed schedules
+  const staffingTotals = useMemo(() => {
+    const counts = Array.from({ length: TOTAL_HOURS }, (_, i) => {
+      const slotStartMin = (DAY_START_HOUR + i) * 60;
+      const slotEndMin   = slotStartMin + 60;
+      return confirmed.filter(s => {
+        const sStart = new Date(s.startTime);
+        const sEnd   = new Date(s.endTime);
+        const sStartMin = sStart.getHours() * 60 + sStart.getMinutes();
+        const sEndMin   = sEnd.getHours() * 60 + sEnd.getMinutes();
+        return sStartMin < slotEndMin && sEndMin > slotStartMin;
+      }).length;
+    });
+    return counts;
+  }, [confirmed]);
+  const hasStaffing = staffingTotals.some(v => v > 0);
+  const peakStaffIdx  = hasStaffing ? staffingTotals.indexOf(Math.max(...staffingTotals)) : -1;
+  const peakStaffHour = peakStaffIdx >= 0 ? DAY_START_HOUR + peakStaffIdx : -1;
+
   // onMouseOver bubbles up from children — check whether the pointer is over a
   // shift block (marked with data-shift-block) so the tooltip hides on blocks.
   const handleMouseOver = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (!hasData) return;
+    if (!hasData && !hasStaffing) return;
     let el = e.target as Element | null;
     while (el && el !== e.currentTarget) {
       if ((el as HTMLElement).dataset.shiftBlock) { setTooltipVisible(false); return; }
       el = el.parentElement;
     }
     setTooltipVisible(true);
-  }, [hasData]);
+  }, [hasData, hasStaffing]);
 
   const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -1184,6 +1230,7 @@ function HorizontalDayRow({
       {hasData && (
         <SalesSparkline
           hourlyTotals={hourlyTotals!}
+          staffingTotals={hasStaffing ? staffingTotals : undefined}
           hourPx={hourPx}
           height={rowHeight}
         />
@@ -1225,15 +1272,34 @@ function HorizontalDayRow({
       })}
 
       {/* Hover tooltip — top-right corner of the row; hidden when over a shift block */}
-      {tooltipVisible && hasData && peakHour24 >= 0 && (
+      {tooltipVisible && (hasData || hasStaffing) && (
         <div className="absolute top-1 right-1 z-30 pointer-events-none select-none">
-          <div className="flex items-center gap-1.5 bg-background/90 border border-border/60 rounded-md px-2 py-1 shadow-sm backdrop-blur-sm">
-            <span className="text-[10px] text-muted-foreground font-medium whitespace-nowrap">
-              Peak: {fmt12(peakHour24)}
-            </span>
-            <span className="text-[10px] text-foreground font-semibold whitespace-nowrap">
-              · ${totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-            </span>
+          <div className="flex items-center gap-2 bg-background/90 border border-border/60 rounded-md px-2 py-1 shadow-sm backdrop-blur-sm">
+            {hasData && peakHour24 >= 0 && (
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-2 h-2 rounded-full bg-blue-500/60 shrink-0" />
+                <span className="text-[10px] text-muted-foreground font-medium whitespace-nowrap">
+                  Sales peak: {fmt12(peakHour24)}
+                </span>
+                <span className="text-[10px] text-foreground font-semibold whitespace-nowrap">
+                  · ${totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} day
+                </span>
+              </span>
+            )}
+            {hasData && hasStaffing && (
+              <span className="text-[10px] text-border/80">|</span>
+            )}
+            {hasStaffing && peakStaffHour >= 0 && (
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-2 h-2 rounded-full bg-amber-500/60 shrink-0" />
+                <span className="text-[10px] text-muted-foreground font-medium whitespace-nowrap">
+                  Peak staff: {fmt12(peakStaffHour)}
+                </span>
+                <span className="text-[10px] text-foreground font-semibold whitespace-nowrap">
+                  {Math.max(...staffingTotals)} people
+                </span>
+              </span>
+            )}
           </div>
         </div>
       )}
