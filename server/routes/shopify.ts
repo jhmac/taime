@@ -1694,6 +1694,112 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
     }
   });
 
+  // ── GET /api/shopify/hourly-sales ─────────────────────────────────────────────
+  // Returns per-hour revenue buckets for each day in the requested week.
+  // Used by the schedule timeline sparkline overlay.
+  // weekStart: YYYY-MM-DD (treated as UTC midnight)
+  // Response: { date: string; hourlyTotals: number[17] }[] (index 0 = 6 AM, 16 = 10 PM)
+  app.get("/api/shopify/hourly-sales", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || req.auth?.userId;
+      const roleName = req.user?.role?.name ?? '';
+      const isAdminOrOwner = roleName === 'owner' || roleName === 'admin';
+      if (!isAdminOrOwner && !(await resolveAnyPermission(userId, ['sales.view_all', 'admin.manage_all'], storage))) {
+        return res.status(403).json({ message: "You don't have access to sales data" });
+      }
+
+      const weekStartParam = (req.query.weekStart as string || '').trim();
+      if (!weekStartParam || !/^\d{4}-\d{2}-\d{2}$/.test(weekStartParam)) {
+        return res.status(400).json({ message: "weekStart must be YYYY-MM-DD" });
+      }
+
+      // Resolve shop domain (same logic as /api/shopify/sales-data)
+      let resolvedDomain = (req.query.shop as string)?.trim().toLowerCase() || '';
+      if (!resolvedDomain) {
+        const linked = await db.select({ shopDomain: shops.shopDomain })
+          .from(shops)
+          .innerJoin(userShops, eq(shops.shopDomain, userShops.shopDomain))
+          .where(and(eq(shops.isActive, true), eq(userShops.userId, userId)))
+          .limit(1);
+        if (!linked.length) {
+          const userRow = await db.select({ companyId: users.companyId }).from(users).where(eq(users.id, userId)).limit(1);
+          const companyId = userRow[0]?.companyId;
+          if (companyId) {
+            const companyShop = await db.select({ shopDomain: shops.shopDomain })
+              .from(shops)
+              .where(and(eq(shops.isActive, true), eq(shops.companyId, companyId)))
+              .limit(1);
+            resolvedDomain = companyShop[0]?.shopDomain || '';
+          }
+        } else {
+          resolvedDomain = linked[0].shopDomain;
+        }
+      }
+
+      const HOURS = 17; // index 0 = 6 AM … index 16 = 10 PM
+      const H_START = 6;
+
+      // Build the 7 date-key strings for the week
+      const weekDayKeys: string[] = [];
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(`${weekStartParam}T12:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + i);
+        weekDayKeys.push(d.toISOString().split('T')[0]);
+      }
+
+      // Return blank week if shop not connected
+      if (!resolvedDomain) {
+        return res.json(weekDayKeys.map(date => ({ date, hourlyTotals: Array(HOURS).fill(0) })));
+      }
+
+      const tz = await getShopTz(resolvedDomain);
+
+      // Query the window — add 1-day buffer on each side to handle timezone shifts
+      const windowStart = new Date(`${weekStartParam}T00:00:00Z`);
+      windowStart.setUTCDate(windowStart.getUTCDate() - 1);
+      const windowEnd = new Date(`${weekStartParam}T00:00:00Z`);
+      windowEnd.setUTCDate(windowEnd.getUTCDate() + 8);
+
+      const orders = await db.select({
+        orderCreatedAt: shopifyOrders.orderCreatedAt,
+        totalPrice: shopifyOrders.totalPrice,
+      }).from(shopifyOrders)
+        .where(and(
+          eq(shopifyOrders.shopDomain, resolvedDomain),
+          gte(shopifyOrders.orderCreatedAt, windowStart),
+          lte(shopifyOrders.orderCreatedAt, windowEnd),
+        ));
+
+      // Initialize map
+      const hourlyMap: Record<string, number[]> = {};
+      for (const dateKey of weekDayKeys) hourlyMap[dateKey] = Array(HOURS).fill(0);
+
+      const tzFormatter = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hour12: false });
+
+      for (const order of orders) {
+        if (!order.orderCreatedAt) continue;
+        const dt = new Date(order.orderCreatedAt);
+        const dateKey = dateKeyInTz(dt, tz);
+        if (!hourlyMap[dateKey]) continue;
+        // hour12:false gives "00"–"23"; "24" can appear for midnight — treat as 0
+        const rawHour = parseInt(tzFormatter.format(dt), 10);
+        const localHour = rawHour === 24 ? 0 : rawHour;
+        const idx = localHour - H_START;
+        if (idx >= 0 && idx < HOURS) {
+          hourlyMap[dateKey][idx] += parseFloat(order.totalPrice || '0');
+        }
+      }
+
+      return res.json(weekDayKeys.map(date => ({
+        date,
+        hourlyTotals: (hourlyMap[date] || Array(HOURS).fill(0)).map(v => Math.round(v * 100) / 100),
+      })));
+    } catch (err) {
+      console.error('[shopify/hourly-sales] error:', err);
+      return res.status(500).json({ message: 'Failed to fetch hourly sales' });
+    }
+  });
+
   app.get("/api/shopify/staffing-recommendations", isAuthenticated, aiRateLimiter, async (req: any, res) => {
     try {
       const userId = req.user?.id || req.auth?.userId;

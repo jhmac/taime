@@ -947,6 +947,7 @@ function HShiftBlock({
 
   return (
     <div
+      data-shift-block="true"
       className={cn(
         "absolute border-2 rounded-md overflow-hidden select-none cursor-pointer transition-shadow",
         colors.block, colors.border,
@@ -989,6 +990,7 @@ function HPendingBlock({ item, lane, hourPx }: {
 
   return (
     <div
+      data-shift-block="true"
       className="absolute rounded-md overflow-hidden border-2 border-dashed border-violet-400 dark:border-violet-500 bg-violet-100/70 dark:bg-violet-900/40 z-[5] cursor-default"
       onClick={e => e.stopPropagation()}
       style={{ left: `${left}px`, width: `${width}px`, top: `${top}px`, height: `${height}px` }}
@@ -1002,6 +1004,75 @@ function HPendingBlock({ item, lane, hourPx }: {
         )}
       </div>
     </div>
+  );
+}
+
+// ── SalesSparkline ────────────────────────────────────────────────────────────
+// Pure SVG area chart overlaid behind shift blocks in a horizontal day row.
+// X maps to hourPx scale (index 0 = 6 AM … index 16 = 10 PM).
+// Y is normalized to rowHeight with a small padding so the curve never clips.
+function SalesSparkline({ hourlyTotals, hourPx, height }: {
+  hourlyTotals: number[];
+  hourPx: number;
+  height: number;
+}) {
+  const n   = hourlyTotals.length;
+  const max = Math.max(...hourlyTotals, 1);
+  const pad = 6; // px breathing room at top
+
+  const pts = hourlyTotals.map((v, i) => ({
+    x: i * hourPx,
+    y: height - pad - ((v / max) * (height - pad * 2)),
+  }));
+
+  // Catmull-Rom → Cubic Bézier conversion for a smooth curve
+  function buildPath(points: { x: number; y: number }[]): string {
+    if (points.length < 2) return '';
+    let d = `M ${points[0].x},${points[0].y}`;
+    for (let i = 1; i < points.length; i++) {
+      const p0 = points[Math.max(0, i - 2)];
+      const p1 = points[i - 1];
+      const p2 = points[i];
+      const p3 = points[Math.min(points.length - 1, i + 1)];
+      const cp1x = p1.x + (p2.x - p0.x) / 6;
+      const cp1y = p1.y + (p2.y - p0.y) / 6;
+      const cp2x = p2.x - (p3.x - p1.x) / 6;
+      const cp2y = p2.y - (p3.y - p1.y) / 6;
+      d += ` C ${cp1x.toFixed(2)},${cp1y.toFixed(2)} ${cp2x.toFixed(2)},${cp2y.toFixed(2)} ${p2.x},${p2.y.toFixed(2)}`;
+    }
+    return d;
+  }
+
+  const linePath = buildPath(pts);
+  const last = pts[pts.length - 1];
+  const first = pts[0];
+  const areaPath = `${linePath} L ${last.x},${height} L ${first.x},${height} Z`;
+  const totalWidth = (n - 1) * hourPx;
+
+  if (!linePath) return null;
+
+  return (
+    <svg
+      width={totalWidth}
+      height={height}
+      className="absolute top-0 left-0 pointer-events-none"
+      aria-hidden="true"
+      style={{ zIndex: 0 }}
+    >
+      <path
+        d={areaPath}
+        className="fill-blue-500/[0.08] dark:fill-blue-400/[0.11]"
+        stroke="none"
+      />
+      <path
+        d={linePath}
+        fill="none"
+        className="stroke-blue-500/[0.28] dark:stroke-blue-400/[0.35]"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
@@ -1036,10 +1107,10 @@ function HTimeHeader({ hourPx }: { hourPx: number }) {
 
 // Single horizontal day row (shifts positioned absolutely left-to-right)
 // Note: now-line is rendered at week level so it spans all rows — this component
-// only handles grid lines and shift blocks.
+// only handles grid lines, sparkline, and shift blocks.
 function HorizontalDayRow({
   date, confirmed, pending, users, hourPx,
-  onSlotClick, onEdit, selectedScheduleId,
+  onSlotClick, onEdit, selectedScheduleId, hourlyTotals,
 }: {
   date: Date;
   confirmed: Schedule[];
@@ -1049,11 +1120,37 @@ function HorizontalDayRow({
   onSlotClick: (date: Date, startTime: string) => void;
   onEdit: (s: Schedule) => void;
   selectedScheduleId?: string | null;
+  hourlyTotals?: number[];
 }) {
   const laned      = useMemo(() => layoutHLanes(confirmed, pending, date), [confirmed, pending, date]);
   const maxLane    = laned.reduce((m, x) => Math.max(m, x.lane), 0);
   const rowHeight  = Math.max(H_LANE_H * (maxLane + 1) + H_ROW_PAD, H_LANE_H + H_ROW_PAD);
   const totalWidth = TOTAL_HOURS * hourPx;
+
+  // Tooltip state — show on row hover (but NOT when hovering a shift block)
+  const [tooltipVisible, setTooltipVisible] = useState(false);
+
+  const hasData = hourlyTotals && hourlyTotals.some(v => v > 0);
+  const totalRevenue = hasData ? hourlyTotals!.reduce((s, v) => s + v, 0) : 0;
+  const peakIdx = hasData ? hourlyTotals!.indexOf(Math.max(...hourlyTotals!)) : -1;
+  const peakHour24 = peakIdx >= 0 ? DAY_START_HOUR + peakIdx : -1;
+  function fmt12(h24: number): string {
+    if (h24 === 0)  return '12 AM';
+    if (h24 === 12) return '12 PM';
+    return h24 < 12 ? `${h24} AM` : `${h24 - 12} PM`;
+  }
+
+  // onMouseOver bubbles up from children — check whether the pointer is over a
+  // shift block (marked with data-shift-block) so the tooltip hides on blocks.
+  const handleMouseOver = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!hasData) return;
+    let el = e.target as Element | null;
+    while (el && el !== e.currentTarget) {
+      if ((el as HTMLElement).dataset.shiftBlock) { setTooltipVisible(false); return; }
+      el = el.parentElement;
+    }
+    setTooltipVisible(true);
+  }, [hasData]);
 
   const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -1072,13 +1169,24 @@ function HorizontalDayRow({
       className="relative cursor-pointer"
       style={{ width: `${totalWidth}px`, height: `${rowHeight}px` }}
       onClick={handleClick}
+      onMouseOver={handleMouseOver}
+      onMouseLeave={() => setTooltipVisible(false)}
     >
+      {/* Sales sparkline — rendered first (lowest z-index) */}
+      {hasData && (
+        <SalesSparkline
+          hourlyTotals={hourlyTotals!}
+          hourPx={hourPx}
+          height={rowHeight}
+        />
+      )}
+
       {/* Hour grid lines */}
       {Array.from({ length: TOTAL_HOURS + 1 }).map((_, hi) => (
         <div
           key={hi}
           className="absolute top-0 bottom-0 w-px bg-border/20"
-          style={{ left: `${hi * hourPx}px` }}
+          style={{ left: `${hi * hourPx}px`, zIndex: 1 }}
         />
       ))}
       {/* Half-hour dashed lines */}
@@ -1086,7 +1194,7 @@ function HorizontalDayRow({
         <div
           key={`hh-${hi}`}
           className="absolute top-0 bottom-0 w-px border-l border-dashed border-border/10"
-          style={{ left: `${hi * hourPx + hourPx / 2}px` }}
+          style={{ left: `${hi * hourPx + hourPx / 2}px`, zIndex: 1 }}
         />
       ))}
 
@@ -1107,6 +1215,20 @@ function HorizontalDayRow({
           />
         );
       })}
+
+      {/* Hover tooltip — top-right corner of the row; hidden when over a shift block */}
+      {tooltipVisible && hasData && peakHour24 >= 0 && (
+        <div className="absolute top-1 right-1 z-30 pointer-events-none select-none">
+          <div className="flex items-center gap-1.5 bg-background/90 border border-border/60 rounded-md px-2 py-1 shadow-sm backdrop-blur-sm">
+            <span className="text-[10px] text-muted-foreground font-medium whitespace-nowrap">
+              Peak: {fmt12(peakHour24)}
+            </span>
+            <span className="text-[10px] text-foreground font-semibold whitespace-nowrap">
+              · ${totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1142,6 +1264,23 @@ function HorizontalWeekView({
   nowSentinelRef?: React.RefObject<HTMLDivElement>;
 }) {
   const today = new Date().toDateString();
+
+  // ── Hourly sales sparkline data ──────────────────────────────────────────────
+  const weekStart = weekDates[0] ? formatLocalDate(weekDates[0]) : '';
+  const { data: hourlySalesData } = useQuery<{ date: string; hourlyTotals: number[] }[]>({
+    queryKey: [`/api/shopify/hourly-sales?weekStart=${weekStart}`],
+    enabled: !!weekStart,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+  // Build a map from date string → hourlyTotals for O(1) lookup
+  const hourlyByDate = useMemo(() => {
+    const map: Record<string, number[]> = {};
+    if (hourlySalesData) {
+      for (const row of hourlySalesData) map[row.date] = row.hourlyTotals;
+    }
+    return map;
+  }, [hourlySalesData]);
 
   const displayDates = useMemo(() => {
     if (!isMobile || !mobileDayCenter) return weekDates;
@@ -1264,6 +1403,7 @@ function HorizontalWeekView({
                     onSlotClick={onSlotClick}
                     onEdit={onEdit}
                     selectedScheduleId={selectedScheduleId}
+                    hourlyTotals={hourlyByDate[dayStr]}
                   />
                 </div>
               );
