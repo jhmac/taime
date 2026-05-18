@@ -12,8 +12,9 @@ const DAY_START_HOUR = 6;
 const DAY_END_HOUR   = 22;
 const TOTAL_HOURS    = DAY_END_HOUR - DAY_START_HOUR;
 
-const DEFAULT_WEEK_HOUR_PX = 60;
+const DEFAULT_WEEK_HOUR_PX = 60;   // compact density used on mobile
 const DEFAULT_DAY_HOUR_PX  = 80;
+const HOUR_PX_H            = 80;   // default px-per-hour for the horizontal week axis
 const SNAP_MINUTES = 15;
 const MIN_HOUR_PX  = 40;
 const MAX_HOUR_PX  = 160;
@@ -896,6 +897,384 @@ function WeekView({
   );
 }
 
+// ── Horizontal Week View ──────────────────────────────────────────────────────
+
+const DAY_LABEL_W = 72;   // px – sticky left day-label column width
+const H_LANE_H    = 34;   // px – height of each overlap lane within a row
+const H_ROW_PAD   = 8;    // px – total vertical padding per row (top+bottom)
+
+function timeToLeftPx(minutes: number, hourPx: number): number {
+  return ((minutes - DAY_START_HOUR * 60) / 60) * hourPx;
+}
+
+function durationToPx(durationMinutes: number, hourPx: number): number {
+  return Math.max((durationMinutes / 60) * hourPx, 4);
+}
+
+// Re-use layoutUnified but map its `col` output as the vertical lane index
+interface HLanedItem { item: UnifiedItem; lane: number; }
+
+function layoutHLanes(confirmed: Schedule[], pending: AiScheduleEntry[], date: Date): HLanedItem[] {
+  return layoutUnified(confirmed, pending, date).map(p => ({ item: p.item, lane: p.col }));
+}
+
+// Horizontal confirmed shift block
+function HShiftBlock({
+  item, lane, user, hourPx, onEdit, isSelected,
+}: {
+  item: UnifiedItem & { isPending: false };
+  lane: number;
+  user: User | undefined;
+  hourPx: number;
+  onEdit: (s: Schedule) => void;
+  isSelected?: boolean;
+}) {
+  const s        = item.schedule;
+  const startMin = minutesFromMidnight(new Date(item.startMs));
+  const endMin   = minutesFromMidnight(new Date(item.endMs));
+  const left     = timeToLeftPx(startMin, hourPx);
+  const width    = durationToPx(endMin - startMin, hourPx);
+  const top      = H_ROW_PAD / 2 + lane * H_LANE_H;
+  const height   = H_LANE_H - 4;
+
+  const displayName = user
+    ? `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim()
+      || user.email || (user as any).username || 'Unknown'
+    : 'Unknown';
+  const colors    = getColors(s.userId);
+  const timeLabel = `${formatTimeShort(new Date(item.startMs))}–${formatTimeShort(new Date(item.endMs))}`;
+  const showTime  = width >= 64;
+
+  return (
+    <div
+      className={cn(
+        "absolute border-2 rounded-md overflow-hidden select-none cursor-pointer transition-shadow",
+        colors.block, colors.border,
+        isSelected
+          ? "ring-2 ring-white ring-offset-1 shadow-xl z-20 border-white/60"
+          : "z-10 hover:z-20 hover:shadow-md",
+      )}
+      style={{ left: `${left}px`, width: `${width}px`, top: `${top}px`, height: `${height}px` }}
+      onClick={e => { e.stopPropagation(); onEdit(s); }}
+      title={`${displayName}: ${timeLabel}${s.title ? ` · ${s.title}` : ''}`}
+    >
+      <div className={cn("absolute inset-0 px-1.5 flex items-center gap-1 overflow-hidden", colors.text)}>
+        <span className="text-[10px] font-semibold truncate leading-tight shrink-0">{displayName}</span>
+        {showTime && (
+          <span className="text-[9px] opacity-70 truncate shrink-0">{timeLabel}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Horizontal pending (AI-proposed) shift block
+function HPendingBlock({ item, lane, hourPx }: {
+  item: UnifiedItem & { isPending: true };
+  lane: number;
+  hourPx: number;
+}) {
+  const entry    = item.entry;
+  const [sh, sm] = entry.startTime.split(':').map(Number);
+  const [eh, em] = entry.endTime.split(':').map(Number);
+  const startMin = sh * 60 + sm;
+  const endMin   = eh * 60 + em;
+  const left     = timeToLeftPx(startMin, hourPx);
+  const width    = durationToPx(endMin - startMin, hourPx);
+  const top      = H_ROW_PAD / 2 + lane * H_LANE_H;
+  const height   = H_LANE_H - 4;
+  const showTime = width >= 64;
+
+  const timeLabel = `${entry.startTime}–${entry.endTime}`;
+
+  return (
+    <div
+      className="absolute rounded-md overflow-hidden border-2 border-dashed border-violet-400 dark:border-violet-500 bg-violet-100/70 dark:bg-violet-900/40 z-[5] cursor-default"
+      onClick={e => e.stopPropagation()}
+      style={{ left: `${left}px`, width: `${width}px`, top: `${top}px`, height: `${height}px` }}
+      title={`Pending: ${entry.employeeName} · ${timeLabel}`}
+    >
+      <div className="absolute inset-0 px-1.5 flex items-center gap-1 overflow-hidden">
+        <span className="text-[8px] font-bold uppercase tracking-wide text-violet-600 dark:text-violet-300 shrink-0">AI</span>
+        <span className="text-[10px] font-semibold truncate text-violet-700 dark:text-violet-200">{entry.employeeName}</span>
+        {showTime && (
+          <span className="text-[9px] truncate text-violet-600/80 dark:text-violet-300/80">{timeLabel}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Sticky time header bar
+function HTimeHeader({ hourPx }: { hourPx: number }) {
+  const totalWidth = TOTAL_HOURS * hourPx;
+  return (
+    <div className="relative shrink-0" style={{ width: `${totalWidth}px`, height: '32px' }}>
+      {/* Grid column lines */}
+      {Array.from({ length: TOTAL_HOURS + 1 }).map((_, hi) => (
+        <div
+          key={`vl-${hi}`}
+          className="absolute top-0 bottom-0 w-px bg-border/20"
+          style={{ left: `${hi * hourPx}px` }}
+        />
+      ))}
+      {/* Hour labels */}
+      {Array.from({ length: TOTAL_HOURS + 1 }).map((_, hi) => (
+        <div
+          key={hi}
+          className="absolute top-0 bottom-0 flex flex-col justify-end pb-1"
+          style={{ left: `${hi * hourPx + 3}px` }}
+        >
+          <span className="text-[10px] text-muted-foreground leading-none whitespace-nowrap">
+            {formatHour(DAY_START_HOUR + hi)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Single horizontal day row (shifts positioned absolutely left-to-right)
+// Note: now-line is rendered at week level so it spans all rows — this component
+// only handles grid lines and shift blocks.
+function HorizontalDayRow({
+  date, confirmed, pending, users, hourPx,
+  onSlotClick, onEdit, selectedScheduleId,
+}: {
+  date: Date;
+  confirmed: Schedule[];
+  pending: AiScheduleEntry[];
+  users: User[];
+  hourPx: number;
+  onSlotClick: (date: Date, startTime: string) => void;
+  onEdit: (s: Schedule) => void;
+  selectedScheduleId?: string | null;
+}) {
+  const laned      = useMemo(() => layoutHLanes(confirmed, pending, date), [confirmed, pending, date]);
+  const maxLane    = laned.reduce((m, x) => Math.max(m, x.lane), 0);
+  const rowHeight  = Math.max(H_LANE_H * (maxLane + 1) + H_ROW_PAD, H_LANE_H + H_ROW_PAD);
+  const totalWidth = TOTAL_HOURS * hourPx;
+
+  const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x    = e.clientX - rect.left;
+    const rawMinutes  = (x / hourPx) * 60;
+    const snapped     = snapToGrid(rawMinutes);
+    const totalMins   = DAY_START_HOUR * 60 + snapped;
+    const clamped     = clamp(totalMins, DAY_START_HOUR * 60, DAY_END_HOUR * 60 - SNAP_MINUTES);
+    const hh = String(Math.floor(clamped / 60)).padStart(2, '0');
+    const mm = String(clamped % 60).padStart(2, '0');
+    onSlotClick(date, `${hh}:${mm}`);
+  }, [hourPx, date, onSlotClick]);
+
+  return (
+    <div
+      className="relative cursor-pointer"
+      style={{ width: `${totalWidth}px`, height: `${rowHeight}px` }}
+      onClick={handleClick}
+    >
+      {/* Hour grid lines */}
+      {Array.from({ length: TOTAL_HOURS + 1 }).map((_, hi) => (
+        <div
+          key={hi}
+          className="absolute top-0 bottom-0 w-px bg-border/20"
+          style={{ left: `${hi * hourPx}px` }}
+        />
+      ))}
+      {/* Half-hour dashed lines */}
+      {Array.from({ length: TOTAL_HOURS }).map((_, hi) => (
+        <div
+          key={`hh-${hi}`}
+          className="absolute top-0 bottom-0 w-px border-l border-dashed border-border/10"
+          style={{ left: `${hi * hourPx + hourPx / 2}px` }}
+        />
+      ))}
+
+      {/* Shift blocks — use if-block for proper discriminated-union narrowing */}
+      {laned.map(({ item, lane }) => {
+        if (item.isPending) {
+          return <HPendingBlock key={item.id} item={item} lane={lane} hourPx={hourPx} />;
+        }
+        return (
+          <HShiftBlock
+            key={item.id}
+            item={item}
+            lane={lane}
+            user={users.find(u => u.id === item.schedule.userId)}
+            hourPx={hourPx}
+            onEdit={onEdit}
+            isSelected={selectedScheduleId === item.schedule.id}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+// Full horizontal week grid
+function HorizontalWeekView({
+  weekDates,
+  schedules,
+  pendingShifts,
+  users,
+  hourPx,
+  onEdit,
+  onSlotClick,
+  selectedScheduleId,
+  isMobile,
+  mobileDayCenter,
+  onMobileDayCenterChange,
+  containerRef,
+  nowSentinelRef,
+}: {
+  weekDates: Date[];
+  schedules: Schedule[];
+  pendingShifts?: AiScheduleEntry[];
+  users: User[];
+  hourPx: number;
+  onEdit: (s: Schedule) => void;
+  onSlotClick: (date: Date, startTime: string) => void;
+  selectedScheduleId?: string | null;
+  isMobile?: boolean;
+  mobileDayCenter?: Date;
+  onMobileDayCenterChange?: (date: Date) => void;
+  containerRef?: React.RefObject<HTMLDivElement>;
+  nowSentinelRef?: React.RefObject<HTMLDivElement>;
+}) {
+  const today = new Date().toDateString();
+
+  const displayDates = useMemo(() => {
+    if (!isMobile || !mobileDayCenter) return weekDates;
+    const centerIdx = weekDates.findIndex(d => d.toDateString() === mobileDayCenter.toDateString());
+    const ci    = centerIdx >= 0 ? centerIdx : Math.round(weekDates.length / 2) - 1;
+    const start = clamp(ci - 1, 0, weekDates.length - 3);
+    return weekDates.slice(start, start + 3);
+  }, [isMobile, mobileDayCenter, weekDates]);
+
+  // Current-time vertical line — ticks every minute, rendered once spanning all rows
+  const [nowMin, setNowMin] = useState(() => {
+    const n = new Date(); return n.getHours() * 60 + n.getMinutes();
+  });
+  useEffect(() => {
+    const tick = setInterval(() => {
+      const n = new Date(); setNowMin(n.getHours() * 60 + n.getMinutes());
+    }, 60_000);
+    return () => clearInterval(tick);
+  }, []);
+
+  // Only show the now-line when today is actually visible in this week's row list
+  const todayInView = displayDates.some(d => d.toDateString() === today);
+  const nowInRange  = todayInView && nowMin >= DAY_START_HOUR * 60 && nowMin <= DAY_END_HOUR * 60;
+  const nowLineLeft = DAY_LABEL_W + timeToLeftPx(nowMin, hourPx);
+
+  return (
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+      {/* Mobile 7-day pill strip */}
+      {isMobile && (
+        <MobileWeekStrip
+          weekDates={weekDates}
+          visibleDates={displayDates}
+          onDayTap={(date) => onMobileDayCenterChange?.(date)}
+        />
+      )}
+
+      {/* Scrollable area — both axes */}
+      <div ref={containerRef} className="flex-1 overflow-auto">
+        {/* Total width wrapper so both header and rows align */}
+        <div style={{ minWidth: `${DAY_LABEL_W + TOTAL_HOURS * hourPx}px` }}>
+          {/* Sticky time header */}
+          <div className="sticky top-0 z-20 bg-background border-b flex">
+            <div
+              className="sticky left-0 z-30 shrink-0 bg-background border-r"
+              style={{ width: `${DAY_LABEL_W}px`, height: '32px' }}
+            />
+            <HTimeHeader hourPx={hourPx} />
+          </div>
+
+          {/* Day rows + spanning now-line */}
+          <div className="relative">
+            {/* Single vertical now-line that spans ALL day rows */}
+            {nowInRange && (
+              <>
+                {/* Sentinel for IntersectionObserver / scroll-to-now */}
+                <div
+                  ref={nowSentinelRef}
+                  className="absolute top-0 w-px h-px pointer-events-none"
+                  style={{ left: `${nowLineLeft}px` }}
+                  aria-hidden="true"
+                />
+                {/* Red dot at the top */}
+                <div
+                  className="absolute top-0 w-2 h-2 rounded-full bg-red-500 z-30 pointer-events-none"
+                  style={{ left: `${nowLineLeft - 4}px` }}
+                />
+                {/* Vertical line running through all rows */}
+                <div
+                  className="absolute top-0 bottom-0 w-0.5 bg-red-500 opacity-80 z-[25] pointer-events-none"
+                  style={{ left: `${nowLineLeft}px` }}
+                />
+              </>
+            )}
+
+            {displayDates.map((date, i) => {
+              const dayStr    = formatLocalDate(date);
+              const dayShifts = schedules.filter(s => formatLocalDate(new Date(s.startTime)) === dayStr);
+              const isToday   = date.toDateString() === today;
+
+              return (
+                <div
+                  key={dayStr}
+                  className={cn(
+                    "flex border-b",
+                    i % 2 === 0 ? "bg-background" : "bg-muted/20",
+                  )}
+                >
+                  {/* Sticky day label */}
+                  <div
+                    className={cn(
+                      "sticky left-0 z-10 shrink-0 flex flex-col items-center justify-center border-r",
+                      i % 2 === 0 ? "bg-background" : "bg-muted/20",
+                      isToday && "bg-primary/[0.04]",
+                    )}
+                    style={{ width: `${DAY_LABEL_W}px`, minHeight: `${H_LANE_H + H_ROW_PAD}px` }}
+                  >
+                    <span className={cn(
+                      "text-[10px] font-medium uppercase tracking-wide",
+                      isToday ? "text-primary" : "text-muted-foreground",
+                    )}>
+                      {date.toLocaleDateString('en-US', { weekday: 'short' })}
+                    </span>
+                    <span className={cn(
+                      "text-[13px] font-semibold rounded-full w-7 h-7 flex items-center justify-center",
+                      isToday
+                        ? "bg-primary text-primary-foreground"
+                        : "text-foreground",
+                    )}>
+                      {date.getDate()}
+                    </span>
+                  </div>
+
+                  {/* Shift area */}
+                  <HorizontalDayRow
+                    date={date}
+                    confirmed={dayShifts}
+                    pending={pendingShifts ?? []}
+                    users={users}
+                    hourPx={hourPx}
+                    onSlotClick={onSlotClick}
+                    onEdit={onEdit}
+                    selectedScheduleId={selectedScheduleId}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // MonthView
 function MonthView({
   year,
@@ -1117,8 +1496,8 @@ export default function ScheduleTimelineView({
     } catch { /* ignore storage errors */ }
     // Mobile always starts at the compact week density regardless of subview
     if (window.innerWidth < MOBILE_BREAKPOINT) return DEFAULT_WEEK_HOUR_PX;
-    // Desktop: match the initial subview for a sensible baseline
-    return subView === 'week' ? DEFAULT_WEEK_HOUR_PX : DEFAULT_DAY_HOUR_PX;
+    // Desktop: horizontal week view uses HOUR_PX_H (80), day view uses DEFAULT_DAY_HOUR_PX (80)
+    return subView === 'week' ? HOUR_PX_H : DEFAULT_DAY_HOUR_PX;
   });
 
   // Debounced localStorage persistence for hourPx
@@ -1133,7 +1512,7 @@ export default function ScheduleTimelineView({
 
   const defaultHourPx = typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT
     ? DEFAULT_WEEK_HOUR_PX
-    : subView === 'week' ? DEFAULT_WEEK_HOUR_PX : DEFAULT_DAY_HOUR_PX;
+    : subView === 'week' ? HOUR_PX_H : DEFAULT_DAY_HOUR_PX;
 
   const handleResetZoom = useCallback(() => {
     setHourPx(defaultHourPx);
@@ -1205,7 +1584,8 @@ export default function ScheduleTimelineView({
   const scrollToNow = useCallback(() => {
     const sentinel = nowSentinelRef.current;
     if (!sentinel) return;
-    sentinel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Use inline:'center' so horizontal week view also scrolls to the now-line
+    sentinel.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
   }, []);
 
   // Month view
@@ -1588,15 +1968,13 @@ export default function ScheduleTimelineView({
           />
         )}
         {effectiveSubView === 'week' && (
-          <WeekView
+          <HorizontalWeekView
             weekDates={weekDates}
             schedules={weekSchedules}
             pendingShifts={pendingShifts}
             users={users}
             hourPx={hourPx}
             onEdit={onEditSchedule}
-            onDragStart={handleDragStart}
-            dragState={dragState}
             onSlotClick={handleSlotClick}
             selectedScheduleId={selectedScheduleId}
             isMobile={isMobile}
