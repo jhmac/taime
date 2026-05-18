@@ -1020,30 +1020,12 @@ function HPendingBlock({ item, lane, hourPx }: {
 // X maps to hourPx scale (index 0 = 6 AM … index 16 = 10 PM).
 // Y is normalized independently per series so neither drowns the other.
 function SalesSparkline({ hourlyTotals, staffingTotals, hourPx, height }: {
-  hourlyTotals: number[];
+  hourlyTotals?: number[];   // optional — may be absent on days with no sales data
   staffingTotals?: number[];
   hourPx: number;
   height: number;
 }) {
-  const n      = hourlyTotals.length;
-  const maxRev = Math.max(...hourlyTotals, 1);
-  const pad    = 6; // px breathing room at top
-
-  const pts = hourlyTotals.map((v, i) => ({
-    x: i * hourPx,
-    y: height - pad - ((v / maxRev) * (height - pad * 2)),
-  }));
-
-  // Staffing line — independent Y normalization
-  const staffPts = staffingTotals && staffingTotals.length === n
-    ? (() => {
-        const maxStaff = Math.max(...staffingTotals, 1);
-        return staffingTotals.map((v, i) => ({
-          x: i * hourPx,
-          y: height - pad - ((v / maxStaff) * (height - pad * 2)),
-        }));
-      })()
-    : null;
+  const pad = 6; // px breathing room at top
 
   // Catmull-Rom → Cubic Bézier conversion for a smooth curve
   function buildPath(points: { x: number; y: number }[]): string {
@@ -1063,15 +1045,41 @@ function SalesSparkline({ hourlyTotals, staffingTotals, hourPx, height }: {
     return d;
   }
 
-  const linePath = buildPath(pts);
-  const last = pts[pts.length - 1];
-  const first = pts[0];
-  const areaPath = `${linePath} L ${last.x},${height} L ${first.x},${height} Z`;
-  const totalWidth = (n - 1) * hourPx;
+  // Revenue series — only built when the day actually has sales data
+  const hasRev = hourlyTotals && hourlyTotals.some(v => v > 0);
+  const revPts = hasRev
+    ? (() => {
+        const maxRev = Math.max(...hourlyTotals!, 1);
+        return hourlyTotals!.map((v, i) => ({
+          x: i * hourPx,
+          y: height - pad - ((v / maxRev) * (height - pad * 2)),
+        }));
+      })()
+    : null;
 
+  // Staffing line — independent Y normalization; always uses TOTAL_HOURS length
+  const staffPts = staffingTotals && staffingTotals.length >= 2
+    ? (() => {
+        const maxStaff = Math.max(...staffingTotals, 1);
+        return staffingTotals.map((v, i) => ({
+          x: i * hourPx,
+          y: height - pad - ((v / maxStaff) * (height - pad * 2)),
+        }));
+      })()
+    : null;
+
+  const linePath  = revPts   ? buildPath(revPts)   : null;
   const staffPath = staffPts ? buildPath(staffPts) : null;
 
-  if (!linePath) return null;
+  if (!linePath && !staffPath) return null;
+
+  // Use whichever series has more points to set SVG width
+  const nPts = Math.max(revPts?.length ?? 0, staffPts?.length ?? 0);
+  const totalWidth = (nPts - 1) * hourPx;
+
+  const areaPath = linePath && revPts
+    ? `${linePath} L ${revPts[revPts.length - 1].x},${height} L ${revPts[0].x},${height} Z`
+    : null;
 
   return (
     <svg
@@ -1081,21 +1089,23 @@ function SalesSparkline({ hourlyTotals, staffingTotals, hourPx, height }: {
       aria-hidden="true"
       style={{ zIndex: 0 }}
     >
-      {/* Revenue area + line */}
-      <path
-        d={areaPath}
-        className="fill-blue-500/[0.08] dark:fill-blue-400/[0.11]"
-        stroke="none"
-      />
-      <path
-        d={linePath}
-        fill="none"
-        className="stroke-blue-500/[0.28] dark:stroke-blue-400/[0.35]"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      {/* Staffing line — amber/orange, faint, no fill */}
+      {/* Revenue area + line — only when revenue data is present */}
+      {areaPath && linePath && (<>
+        <path
+          d={areaPath}
+          className="fill-blue-500/[0.08] dark:fill-blue-400/[0.11]"
+          stroke="none"
+        />
+        <path
+          d={linePath}
+          fill="none"
+          className="stroke-blue-500/[0.28] dark:stroke-blue-400/[0.35]"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </>)}
+      {/* Staffing line — amber/orange dashed, always shown when staffing exists */}
       {staffPath && (
         <path
           d={staffPath}
@@ -1226,10 +1236,12 @@ function HorizontalDayRow({
       onMouseOver={handleMouseOver}
       onMouseLeave={() => setTooltipVisible(false)}
     >
-      {/* Sales sparkline — rendered first (lowest z-index) */}
-      {hasData && (
+      {/* Sales sparkline — rendered first (lowest z-index).
+          Show whenever there is sales data OR scheduled shifts — the component
+          handles each series independently so either can be absent. */}
+      {(hasData || hasStaffing) && (
         <SalesSparkline
-          hourlyTotals={hourlyTotals!}
+          hourlyTotals={hourlyTotals}
           staffingTotals={hasStaffing ? staffingTotals : undefined}
           hourPx={hourPx}
           height={rowHeight}
