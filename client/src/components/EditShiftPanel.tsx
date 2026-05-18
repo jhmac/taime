@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import * as SheetPrimitive from "@radix-ui/react-dialog";
 import { cva } from "class-variance-authority";
 import { Button } from "@/components/ui/button";
@@ -6,12 +7,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Loader2, Trash2, Calendar, Clock, MapPin, User, StickyNote, Briefcase, X } from "lucide-react";
 import type { Schedule } from "@shared/schema";
+import { apiRequest } from "@/lib/queryClient";
+import { AlignedRevenueBar } from "@/components/PanelHorizontalTimeline";
+import PanelHorizontalTimeline from "@/components/PanelHorizontalTimeline";
+import { type HistoricalSalesData, PANEL_HOUR_PX, storeHoursCount as calcStoreHoursCount } from "@/lib/panelTimelineHelpers";
 
 interface EmpUser {
   id: string;
@@ -95,6 +101,37 @@ export default function EditShiftPanel({
     setShowDeleteConfirm(false);
   }, [schedule]);
 
+  // Date derived directly from the schedule so the query key is stable even
+  // before the useEffect has run (avoids a flash to stale data on re-open).
+  const scheduleDate = schedule ? localDateStr(new Date(schedule.startTime)) : '';
+
+  const { data: salesData, isLoading: salesLoading } = useQuery<HistoricalSalesData>({
+    queryKey: ["/api/schedules/historical-sales", scheduleDate],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/schedules/historical-sales?date=${scheduleDate}`);
+      return res.json();
+    },
+    enabled: !!scheduleDate,
+    staleTime: 5 * 60_000,
+  });
+
+  // The shift being edited is the only "confirmed" entry we show on the timeline
+  // since EditShiftPanel doesn't fetch all shifts for the day. The bar updates
+  // live as the manager changes start/end time in the form.
+  const confirmedShifts = useMemo(() => {
+    if (!schedule) return [];
+    const emp = employees.find(e => e.id === userId);
+    return [{
+      schedule,
+      name: emp ? displayName(emp) : 'Employee',
+      startTime,
+      endTime,
+    }];
+  }, [schedule, userId, employees, startTime, endTime]);
+
+  const effectiveStoreHours = salesData?.storeHours ?? { open: '09:00', close: '21:00' };
+  const storeOpenHoursCount = calcStoreHoursCount(effectiveStoreHours);
+
   const handleSave = () => {
     if (!schedule || !userId || !date) return;
     const [y, mo, d2] = date.split('-').map(Number);
@@ -150,6 +187,36 @@ export default function EditShiftPanel({
 
             {/* Scrollable body */}
             <div className="flex-1 overflow-y-auto p-5 space-y-5">
+              {/* ── Day context timeline (read-only) ─────────────────────── */}
+              {scheduleDate && (
+                <div>
+                  <p className="text-[10px] font-medium text-muted-foreground mb-1.5">Day Overview</p>
+                  {salesLoading ? (
+                    <div className="space-y-1.5">
+                      <Skeleton className="h-3 w-40 rounded" />
+                      <Skeleton className="h-20 w-full rounded" />
+                      <Skeleton className="h-16 w-full rounded" />
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto -mx-1 px-1">
+                      <div style={{ minWidth: `${storeOpenHoursCount * PANEL_HOUR_PX}px` }}>
+                        <AlignedRevenueBar
+                          data={salesData}
+                          isLoading={false}
+                          storeHours={effectiveStoreHours}
+                        />
+                        <PanelHorizontalTimeline
+                          proposedShifts={[]}
+                          confirmedShifts={confirmedShifts}
+                          storeHours={effectiveStoreHours}
+                          hourlyData={salesData?.hourlyData}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Employee */}
               <div className="space-y-1.5">
                 <Label className="text-xs font-medium flex items-center gap-1.5">

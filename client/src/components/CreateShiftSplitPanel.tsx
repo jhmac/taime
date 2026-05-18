@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useRef, useCallback, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { BarChart, Bar, ResponsiveContainer, Tooltip, Cell, XAxis } from "recharts";
+import PanelHorizontalTimeline, { AlignedRevenueBar } from "@/components/PanelHorizontalTimeline";
+import { type HistoricalSalesData, type HourlyData, storeHoursCount as calcStoreHoursCount, PANEL_HOUR_PX } from "@/lib/panelTimelineHelpers";
 import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
@@ -49,22 +50,6 @@ import { useWebSocketContext } from "@/contexts/WebSocketContext";
 // See docs/edit-shift-bug-trace-guide.md for the user-facing repro guide.
 const dlog = makeDlog("Taime/Schedule");
 
-interface HourlyData {
-  hour: number;
-  label: string;
-  revenue: number;
-  isPeak: boolean;
-  suggestedStaff: number;
-}
-
-interface HistoricalSalesData {
-  date: string;
-  historicalDate: string;
-  dataSource: string;
-  dailyTotal: number;
-  hourlyData: HourlyData[];
-  storeHours: { open: string; close: string };
-}
 
 export interface ProposedShift {
   employeeId: string;
@@ -461,111 +446,6 @@ function DataSourceBanner({
   );
 }
 
-function SalesChart({
-  data,
-  isLoading,
-}: {
-  data: HistoricalSalesData | null | undefined;
-  isLoading: boolean;
-}) {
-
-  if (isLoading) {
-    return (
-      <div className="mb-4 space-y-2">
-        <Skeleton className="h-4 w-48 rounded" />
-        <Skeleton className="h-24 w-full rounded-lg" />
-      </div>
-    );
-  }
-
-  const noData =
-    !data ||
-    !data.hourlyData ||
-    data.hourlyData.length === 0 ||
-    data.dataSource === "synthetic";
-
-  if (noData) {
-    return (
-      <div className="mb-4 rounded-lg border border-dashed border-border bg-muted/30 p-4 text-center">
-        <TrendingUp className="h-6 w-6 text-muted-foreground mx-auto mb-1" />
-        <p className="text-xs text-muted-foreground font-medium">No historical sales data for this date</p>
-        <p className="text-[10px] text-muted-foreground mt-0.5">AI suggestions will use minimum staffing defaults.</p>
-      </div>
-    );
-  }
-
-  const dailyFmt = data.dailyTotal >= 1000
-    ? `$${(data.dailyTotal / 1000).toFixed(1)}k`
-    : `$${Math.round(data.dailyTotal)}`;
-
-  const historicalLabel = data.historicalDate
-    ? new Date(data.historicalDate + "T12:00:00Z").toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      })
-    : "";
-
-  return (
-    <div className="mb-3">
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
-          <TrendingUp className="h-3 w-3" />
-          Projected Revenue
-        </span>
-        <div className="flex items-center gap-2">
-          <span className="text-[9px] text-muted-foreground italic">Based on {historicalLabel}</span>
-          <div className="flex items-center gap-1">
-            <span className="text-[11px] font-semibold text-foreground">{dailyFmt} total</span>
-          </div>
-        </div>
-      </div>
-      <div className="h-28 w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data.hourlyData} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
-            <Tooltip
-              cursor={false}
-              content={({ active, payload }) => {
-                if (!active || !payload?.[0]) return null;
-                const d = payload[0].payload as HourlyData;
-                return (
-                  <div className="bg-popover border border-border rounded px-2 py-1 text-[10px] shadow">
-                    <div className="font-medium">{d.label}</div>
-                    <div className="text-muted-foreground">${Math.round(d.revenue).toLocaleString()}{d.isPeak ? " · peak" : ""}</div>
-                    <div className="text-muted-foreground">{d.suggestedStaff} staff recommended</div>
-                  </div>
-                );
-              }}
-            />
-            <XAxis
-              dataKey="label"
-              tick={{ fontSize: 8, fill: '#94a3b8' }}
-              axisLine={false}
-              tickLine={false}
-              interval={0}
-            />
-            <Bar dataKey="revenue" radius={[2, 2, 0, 0]} maxBarSize={22}>
-              {data.hourlyData.map((entry, i) => (
-                <Cell
-                  key={i}
-                  fill={entry.isPeak ? "#f59e0b" : "#94a3b8"}
-                />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-      <div className="flex items-center gap-3 mt-0.5">
-        <span className="flex items-center gap-1 text-[9px] text-muted-foreground">
-          <span className="inline-block w-3 h-2 rounded-sm bg-amber-400" />peak
-        </span>
-        <span className="flex items-center gap-1 text-[9px] text-muted-foreground">
-          <span className="inline-block w-3 h-2 rounded-sm bg-slate-400" />standard
-        </span>
-      </div>
-    </div>
-  );
-}
 
 // ── Pill score badge ─────────────────────────────────────────────────────────
 // Color-blind safe: each tier carries a distinct shape symbol AND a distinct
@@ -4324,6 +4204,49 @@ export default function CreateShiftSplitPanel({
   }, [open, validActiveShifts.length, handleBulkSave, editingSchedule, onUpdateSchedule, selectedActualSchedule, handleEditingScheduleSave, handleSaveActual]);
   const storeHours = salesData?.storeHours ?? suggestData?.storeHours ?? null;
 
+  // Number of whole store-hours — drives the shared scroll-container inner width.
+  const storeOpenHoursCount = useMemo(
+    () => calcStoreHoursCount(storeHours ?? { open: "09:00", close: "21:00" }),
+    [storeHours],
+  );
+
+  // Draft shift: shown as a dashed-outline live-preview bar on the horizontal
+  // timeline whenever the right-panel form is in "new shift" mode.
+  const draftShiftForTimeline = useMemo(() => {
+    if (editingSchedule) return null;
+    if (selectedShiftIdx !== null) return null;
+    if (selectedActualSchedule) return null;
+    if (!modalStartTime || !modalEndTime) return null;
+    const [sh, sm] = modalStartTime.split(":").map(Number);
+    const [eh, em] = modalEndTime.split(":").map(Number);
+    if (eh * 60 + em <= sh * 60 + sm) return null;
+    const emp = selectedUserId ? employees.find(e => e.id === selectedUserId) : null;
+    return {
+      employeeId: selectedUserId || "",
+      employeeName: emp
+        ? `${emp.firstName ?? ""} ${emp.lastName ?? ""}`.trim() || "New Shift"
+        : "New Shift",
+      startTime: modalStartTime,
+      endTime: modalEndTime,
+    };
+  }, [editingSchedule, selectedShiftIdx, selectedActualSchedule, modalStartTime, modalEndTime, selectedUserId, employees]);
+
+  // Slot click — pre-fills start time in the right-panel form, auto-computes
+  // an end time that doesn't exceed store close.
+  const handleTimelineSlotClick = useCallback((startTime: string) => {
+    const [h, m] = startTime.split(":").map(Number);
+    const startMin = h * 60 + m;
+    const closeMin = storeHours ? (parseInt(storeHours.close.split(":")[0], 10) * 60 + parseInt(storeHours.close.split(":")[1] ?? "0", 10)) : 21 * 60;
+    const endMin = Math.min(startMin + 240, closeMin);
+    const endH = String(Math.floor(endMin / 60)).padStart(2, "0");
+    const endM = String(endMin % 60).padStart(2, "0");
+    setModalStartTime(startTime);
+    setModalEndTime(`${endH}:${endM}`);
+    setSelectedShiftIdx(null);
+    setSelectedActualSchedule(null);
+    setActualFormEdits(null);
+  }, [storeHours]);
+
   // Task #392 C3 — keep the nudge-on-resize closure synced with its inputs.
   // Defined here (after `storeHours`) so we don't run into TS2454/TS2448
   // forward-reference errors. The closure QUEUES nudges into
@@ -5017,15 +4940,6 @@ export default function CreateShiftSplitPanel({
                 </div>
               )}
 
-              {/* Sales chart */}
-              <SalesChart
-                data={salesData}
-                isLoading={salesLoading && !!modalDate}
-              />
-
-              {/* Divider */}
-              <div className="border-t border-border/40" />
-
               {/* External-change banner (Task #387 A4 panel-side) — appears when
                   another tab/user creates/updates/deletes shifts for the open day
                   via the bulk routes. Refresh CTA re-pulls server data, then the
@@ -5131,45 +5045,40 @@ export default function CreateShiftSplitPanel({
                     </div>
                   )}
 
-                  {/* Day-view timeline — actual scheduled shifts + AI suggestions unified */}
-                  {/* stop bubble so empty-space clicks on the scrollable area deselect  */}
-                  {/* while block clicks don't.                                          */}
-                  <div ref={timelineWrapperRef} onClick={(e) => e.stopPropagation()}>
-                    <DayTimeline
-                      suggestData={mergedSuggestData}
-                      isLoading={suggestLoading && !!modalDate}
-                      isError={suggestError}
-                      errorMsg={suggestError ? (suggestErrorObj as Error)?.message : undefined}
-                      storeHours={storeHours}
-                      selectedIdx={selectedShiftIdx}
-                      onSelectShift={handleSelectShift}
-                      excludedIdxs={excludedIdxs}
-                      onToggleExclude={handleToggleExclude}
-                      conflictingEmployeeIds={conflictingEmployeeIds}
-                      onShiftEdit={handleShiftEdit}
-                      onDragStart={handleDragStart}
-                      onDragEnd={handleDragEnd}
-                      actualShifts={liveActualShifts}
-                      onSelectActualShift={handleSelectActualShift}
-                      selectedActualId={selectedActualSchedule?.id}
-                      multiSelectedActualIds={selectedActualIds}
-                      onActualShiftChange={handleActualShiftChange}
-                      onDeleteActualShift={(s) => deleteActualMutation.mutate({ schedule: s })}
-                      aiCount={aiProposedShifts.length}
-                      pillDrag={pillDrag}
-                      aiGhostCandidates={aiGhostCandidates}
-                      onApplyAiGhost={(c) => {
-                        const member = (availData?.members ?? []).find((m) => m.userId === c.employeeId);
-                        if (!member) return;
-                        // Re-use the pill-drop persistence path with an explicit range so
-                        // the candidate's exact start/end times are honored (no snapping
-                        // and no 4-hour default duration).
-                        const body = document.querySelector('[data-timeline-body="true"]') as HTMLElement | null;
-                        const rect = body ? body.getBoundingClientRect() : new DOMRect(0, 0, 0, 0);
-                        handlePillDrop(member, 0, rect, { start: c.startTime, end: c.endTime });
-                      }}
-                      scheduledEmployeeIds={scheduledForAiGhost}
-                    />
+                  {/* Horizontal shift timeline + aligned revenue bar — both in one
+                      shared overflow-x-auto container so their hour columns are
+                      pixel-perfect-aligned regardless of screen width.           */}
+                  <div
+                    ref={timelineWrapperRef}
+                    className="overflow-x-auto"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div style={{ minWidth: `${storeOpenHoursCount * PANEL_HOUR_PX}px` }}>
+                      <AlignedRevenueBar
+                        data={salesData}
+                        isLoading={salesLoading && !!modalDate}
+                        storeHours={storeHours ?? undefined}
+                      />
+                      <PanelHorizontalTimeline
+                        proposedShifts={proposedShifts}
+                        confirmedShifts={liveActualShifts ?? []}
+                        draftShift={draftShiftForTimeline}
+                        storeHours={storeHours ?? { open: "09:00", close: "21:00" }}
+                        hourlyData={salesData?.hourlyData}
+                        isLoading={suggestLoading && !!modalDate}
+                        isError={suggestError}
+                        errorMsg={suggestError ? (suggestErrorObj as Error)?.message : undefined}
+                        selectedIdx={selectedShiftIdx}
+                        onSelectShift={handleSelectShift}
+                        selectedActualId={selectedActualSchedule?.id}
+                        onSelectActualShift={handleSelectActualShift}
+                        excludedIdxs={excludedIdxs}
+                        onToggleExclude={handleToggleExclude}
+                        conflictingEmployeeIds={conflictingEmployeeIds}
+                        aiCount={aiProposedShifts.length}
+                        onSlotClick={handleTimelineSlotClick}
+                      />
+                    </div>
                   </div>
                 </>
               )}
