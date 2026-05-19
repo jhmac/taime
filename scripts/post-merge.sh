@@ -99,6 +99,7 @@ await run('offsite_allowance_rules.destination_lat', `ALTER TABLE offsite_allowa
 
 // users
 await run('users.invite_token', `ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_token varchar`);
+await run('users.eligible_for_auto_scheduling', `ALTER TABLE users ADD COLUMN IF NOT EXISTS eligible_for_auto_scheduling boolean DEFAULT true`);
 
 // score_notices.title was added NOT NULL in an older migration but is not
 // populated by gamificationService.ts, causing crashes on every cron tick.
