@@ -103,6 +103,7 @@ export default function Team() {
 
   const [search, setSearch] = useState("");
   const [showTerminated, setShowTerminated] = useState(false);
+  const [autoScheduleFilter, setAutoScheduleFilter] = useState<"all" | "eligible" | "ineligible">("all");
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [confirmAction, setConfirmAction] = useState<{
     type: "deactivate" | "remove";
@@ -339,13 +340,18 @@ export default function Team() {
           `${m.firstName} ${m.lastName}`.toLowerCase().includes(q)
       );
     }
+    if (autoScheduleFilter === "eligible") {
+      list = list.filter((m) => m.eligibleForAutoScheduling !== false);
+    } else if (autoScheduleFilter === "ineligible") {
+      list = list.filter((m) => m.eligibleForAutoScheduling === false);
+    }
     list = [...list].sort((a, b) => {
       const nameA = `${a.firstName || ""} ${a.lastName || ""}`.toLowerCase();
       const nameB = `${b.firstName || ""} ${b.lastName || ""}`.toLowerCase();
       return sortAsc ? nameA.localeCompare(nameB) : nameB.localeCompare(nameA);
     });
     return list;
-  }, [members, search, showTerminated, sortAsc]);
+  }, [members, search, showTerminated, autoScheduleFilter, sortAsc]);
 
   const handleAddSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -454,13 +460,19 @@ export default function Team() {
             onCheckedChange={setShowTerminated}
           />
         </div>
-        <Button
-          variant="outline"
-          className="border-violet-600 text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950"
-        >
-          <Filter className="h-4 w-4 mr-1" />
-          Filter
-        </Button>
+        {isManagerOrAbove && (
+          <Select value={autoScheduleFilter} onValueChange={(v) => setAutoScheduleFilter(v as "all" | "eligible" | "ineligible")}>
+            <SelectTrigger className="w-[190px]">
+              <Filter className="h-4 w-4 mr-1 text-muted-foreground" />
+              <SelectValue placeholder="Auto-scheduling" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All employees</SelectItem>
+              <SelectItem value="eligible">Auto-scheduling eligible</SelectItem>
+              <SelectItem value="ineligible">Auto-scheduling excluded</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
         {canManageEmployees && (
           <Button
             className="bg-violet-600 hover:bg-violet-700 text-white"
@@ -520,11 +532,11 @@ export default function Team() {
         <div className="flex flex-col items-center py-16 gap-3">
           <Users className="h-12 w-12 text-muted-foreground/50" />
           <p className="text-muted-foreground">No team members found.</p>
-          {search ? (
-            <Button variant="ghost" size="sm" onClick={() => setSearch("")}>
-              Clear search
+          {(search || autoScheduleFilter !== "all") && (
+            <Button variant="ghost" size="sm" onClick={() => { setSearch(""); setAutoScheduleFilter("all"); }}>
+              Clear filters
             </Button>
-          ) : null}
+          )}
         </div>
       )}
 
