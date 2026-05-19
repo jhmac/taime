@@ -850,7 +850,7 @@ type ActualShiftEntry = { schedule: Schedule; name: string; startTime: string; e
 //     synthetic "click" can fire.
 //   - pointerdown also stops propagation so the parent never starts a drag
 //     just because the user pressed the X.
-function HoverIntentDeleteButton({ onConfirm }: { onConfirm: () => void }) {
+function HoverIntentDeleteButton({ onConfirm, isSelected }: { onConfirm: () => void; isSelected?: boolean }) {
   const [hovered, setHovered] = useState(false);
   return (
     <button
@@ -879,11 +879,12 @@ function HoverIntentDeleteButton({ onConfirm }: { onConfirm: () => void }) {
         onConfirm();
       }}
       title="Delete from schedule"
-      className={`absolute top-0.5 right-0.5 flex items-center justify-center w-5 h-5 rounded-full text-white z-30 transition-all cursor-pointer ${
-        hovered
-          ? 'bg-red-500 opacity-100 scale-110 shadow-md'
-          : 'bg-black/45 opacity-60 hover:opacity-100'
-      }`}
+      className={cn(
+        "absolute top-0.5 right-0.5 flex items-center justify-center w-5 h-5 rounded-full text-white z-30 transition-all cursor-pointer",
+        isSelected || hovered
+          ? "bg-red-500 opacity-100 scale-110 shadow-md"
+          : "bg-black/45 opacity-0 group-hover/actual:opacity-60 hover:!opacity-100",
+      )}
     >
       <X className="h-3 w-3" />
     </button>
@@ -1517,11 +1518,11 @@ function DayTimeline({
                     >
                       <div className="w-5 h-0.5 rounded-full bg-white/40" />
                     </div>
-                    {/* Hover X — delete this shift, with 200ms hover-intent
-                        delay so accidental cursor flicks don't trigger a delete. */}
+                    {/* X button — visible on hover, bold red when this card is selected */}
                     {onDeleteActualShift && !isDragging && (
                       <HoverIntentDeleteButton
                         onConfirm={() => onDeleteActualShift(actual.schedule)}
+                        isSelected={isActive}
                       />
                     )}
                   </div>
