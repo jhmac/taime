@@ -678,6 +678,7 @@ export default function TeamMember() {
                       { key: "sendLocationAlerts", label: "Send Location Alerts" },
                       { key: "includeInTimeClockErrors", label: "Include in Time Clock Errors" },
                       { key: "eligibleForOpenShifts", label: "Eligible for Open Shifts" },
+                      { key: "eligibleForAutoScheduling", label: "Eligible for Auto-Scheduling" },
                       { key: "canWaiveMissedBreaks", label: `${member.firstName} can waive or add missed breaks` },
                     ].map((item) => (
                       <div key={item.key} className="flex items-center gap-3">

@@ -911,7 +911,7 @@ export function registerAiSchedulingRoutes(
         : [];
 
       const employeeList = allUsers
-        .filter(u => u.showInSchedule !== false)
+        .filter(u => u.showInSchedule !== false && u.eligibleForAutoScheduling !== false)
         .map(u => {
           const userAvail: Record<string, any> = {};
           const userPatterns = workPatternsByUser[u.id] || {};
@@ -1481,7 +1481,7 @@ Required JSON structure:
         .where(and(eq(specialCircumstances.storeId, storeId), eq(specialCircumstances.isEnabled, true)));
 
       // ── Employee list ───────────────────────────────────────────────────────
-      const employeeList = allUsers.filter(u => u.showInSchedule !== false).map(u => {
+      const employeeList = allUsers.filter(u => u.showInSchedule !== false && u.eligibleForAutoScheduling !== false).map(u => {
         const userAvail: Record<string, any> = {};
         const userPatterns = workPatternsByUser[u.id] || {};
         for (const day of days) {
@@ -4077,7 +4077,7 @@ Respond ONLY with a valid JSON object (no markdown, no explanation) in this exac
       const activeRules = allPromptRules.filter(r => r.ruleType !== 'custom_instructions');
 
       const employeeList = allUsers
-        .filter(u => u.showInSchedule !== false)
+        .filter(u => u.showInSchedule !== false && u.eligibleForAutoScheduling !== false)
         .map(u => {
           const userPatterns = workPatternsByUser[u.id] || {};
           const availByDate: Record<string, string> = {};

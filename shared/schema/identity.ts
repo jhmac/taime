@@ -112,6 +112,7 @@ export const users = pgTable("users", {
   sendLocationAlerts: boolean("send_location_alerts").default(true),
   includeInTimeClockErrors: boolean("include_in_time_clock_errors").default(true),
   eligibleForOpenShifts: boolean("eligible_for_open_shifts").default(true),
+  eligibleForAutoScheduling: boolean("eligible_for_auto_scheduling").default(true),
   canWaiveMissedBreaks: boolean("can_waive_missed_breaks").default(false),
   homeLatitude: decimal("home_latitude", { precision: 10, scale: 8 }),
   homeLongitude: decimal("home_longitude", { precision: 11, scale: 8 }),
