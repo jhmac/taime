@@ -4926,8 +4926,8 @@ export default function CreateShiftSplitPanel({
                   editing mode via effectiveSuggestData and for manual-only
                   sources where no AI rationale exists. */}
               <DataSourceBanner
-                dataSource={effectiveSuggestData?.dataSource}
-                historicalDate={effectiveSuggestData?.historicalDate}
+                dataSource={salesData?.dataSource ?? effectiveSuggestData?.dataSource}
+                historicalDate={salesData?.historicalDate ?? effectiveSuggestData?.historicalDate}
               />
 
               {/* Conflict warning */}
@@ -5128,7 +5128,7 @@ export default function CreateShiftSplitPanel({
           {/* ── RIGHT PANEL ── */}
           <div className={cn(
             "flex flex-col",
-            isMobile ? "" : "md:w-[45%] min-h-0 overflow-y-auto"
+            isMobile ? "" : "md:w-[45%] min-h-0"
           )}>
             {/* Edit mode banner when an AI block or actual shift is selected */}
             {(isEditingBlock || isActualEditing) && (
@@ -5219,8 +5219,10 @@ export default function CreateShiftSplitPanel({
                 else if (isActualEditing) { e.preventDefault(); handleSaveActual(); }
                 else handleSubmit(e);
               }}
-              className="px-4 py-3 space-y-3 flex-1"
+              className="flex-1 min-h-0 flex flex-col"
             >
+              {/* Scrollable form body */}
+              <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-3">
               {/* Availability filter toggle */}
               <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2">
                 <div className="flex items-center gap-2">
@@ -5517,6 +5519,10 @@ export default function CreateShiftSplitPanel({
                 </div>
               )}
 
+              </div>{/* end scrollable form body */}
+
+              {/* Sticky footer — always visible: estimated labor bar + action buttons */}
+              <div className="flex-shrink-0 px-4 pb-3 space-y-2 border-t border-border/30 pt-2">
               {/* ── Live margin meter (Task #387 C4) ──
                   Sums labor cost across the currently valid pending shifts and
                   shows projected labor % vs revenue. Cost uses per-user
@@ -5770,6 +5776,7 @@ export default function CreateShiftSplitPanel({
                   ) : null}
                 </div>
               </div>
+              </div>{/* end sticky footer */}
             </form>
           </div>
         </div>

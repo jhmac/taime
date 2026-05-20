@@ -2913,6 +2913,8 @@ Required format:
         });
       }
 
+      console.info(`[historical-sales] date=${dateParam} historicalDate=${historicalDateStr} dataSource=${dataSource} dailyTotal=${Math.round(dailyTotal * 100) / 100}`);
+
       res.json({
         date: dateParam,
         historicalDate: historicalDateStr,

@@ -1028,54 +1028,9 @@ export default function ScheduleManagement() {
       return res.json();
     },
     onSuccess: (updatedSchedule) => {
-      const cacheKey = ["/api/schedules", startDateParam, endDateParam];
-      // Snapshot what the server returned, then what the cache looks like
-      // immediately after the targeted setQueryData patch and again after
-      // invalidateScheduleSurfaces — so we can confirm whether the timeline
-      // grid is reading the freshly-updated row (Task #420).
-      dlog("updateScheduleMutation/success", {
-        cacheKey,
-        updatedSchedule: {
-          id: updatedSchedule?.id,
-          userId: updatedSchedule?.userId,
-          startTime: updatedSchedule?.startTime,
-          endTime: updatedSchedule?.endTime,
-          locationId: updatedSchedule?.locationId,
-          title: updatedSchedule?.title,
-        },
-      });
-      queryClient.setQueryData(
-        cacheKey,
-        (old: Schedule[] = []) => old.map(s => s.id === updatedSchedule.id ? updatedSchedule : s),
-      );
-      const afterPatch = queryClient.getQueryData<Schedule[]>(cacheKey);
-      const patchedRow = afterPatch?.find(s => s.id === updatedSchedule.id);
-      dlog("updateScheduleMutation/cacheAfterSetQueryData", {
-        cacheKey,
-        rowCount: afterPatch?.length ?? 0,
-        patchedRow: patchedRow
-          ? {
-              id: patchedRow.id,
-              startTime: patchedRow.startTime,
-              endTime: patchedRow.endTime,
-              userId: patchedRow.userId,
-            }
-          : null,
-        cacheKeyMatchesUpdate: !!patchedRow,
-      });
-      // Only invalidate non-grid surfaces. The grid cache is already correct
-      // via setQueryData above. Broadcasting a full ["/api/schedules"] invalidation
-      // triggers a background refetch that can race and overwrite the optimistic patch
-      // with stale server data (Bug #1 save-revert). Suggest and today-availability
-      // still need a fresh pull since they depend on schedule counts.
+      queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
       queryClient.invalidateQueries({ queryKey: ["/api/schedules/suggest"] });
       queryClient.invalidateQueries({ queryKey: ["/api/schedules/today-availability"] });
-      const afterInvalidate = queryClient.getQueryData<Schedule[]>(cacheKey);
-      dlog("updateScheduleMutation/cacheAfterInvalidate", {
-        cacheKey,
-        rowCount: afterInvalidate?.length ?? 0,
-        rowStillPresent: !!afterInvalidate?.find(s => s.id === updatedSchedule.id),
-      });
       setEditingSchedule(null);
       setShowCreateShift(false);
       toast({ title: "Shift updated", description: "Changes saved." });
