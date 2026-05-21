@@ -334,7 +334,7 @@ function ShiftBlock({
         "absolute border-2 rounded-md overflow-hidden select-none transition-shadow",
         colors.block, colors.border,
         isDragging && "shadow-lg ring-2 ring-primary/40 z-30",
-        isSelected && !isDragging && "ring-2 ring-white ring-offset-1 shadow-xl z-20 border-white/60",
+        isSelected && !isDragging && "ring-2 ring-orange-500 ring-offset-1 shadow-xl z-20 border-orange-500/80",
         !isDragging && !isSelected && "z-10 hover:z-20 hover:shadow-md",
       )}
       style={{
@@ -960,7 +960,7 @@ function HShiftBlock({
         "absolute border-2 rounded-md overflow-hidden select-none cursor-pointer transition-shadow",
         colors.block, colors.border,
         isSelected
-          ? "ring-2 ring-white ring-offset-1 shadow-xl z-20 border-white/60"
+          ? "ring-2 ring-orange-500 ring-offset-1 shadow-xl z-20 border-orange-500/80"
           : "z-10 hover:z-20 hover:shadow-md",
       )}
       style={{ left: `${left}px`, width: `${width}px`, top: `${top}px`, height: `${height}px` }}
