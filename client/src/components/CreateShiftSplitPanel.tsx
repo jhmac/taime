@@ -1925,6 +1925,13 @@ export default function CreateShiftSplitPanel({
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
   const [redoStack, setRedoStack] = useState<UndoEntry[]>([]);
   const [dialogSize, setDialogSize] = useState<DialogSize>('normal');
+  // Left pane width percentage — persisted to localStorage so it survives page reloads
+  const [leftPct, setLeftPct] = useState<number>(() => {
+    try {
+      const n = Number(localStorage.getItem('taime-split-pct') ?? '');
+      return isFinite(n) && n >= 25 && n <= 75 ? n : 55;
+    } catch { return 55; }
+  });
   const [dialogDims, setDialogDims] = useState<{ width: number; height: number } | null>(null);
   const [selectedActualSchedule, setSelectedActualSchedule] = useState<Schedule | null>(null);
   const [actualFormEdits, setActualFormEdits] = useState<{ startTime: string; endTime: string; userId: string } | null>(null);
@@ -2026,6 +2033,7 @@ export default function CreateShiftSplitPanel({
   const [modalLocationId, setModalLocationId] = useState(editingSchedule?.locationId ?? locations[0]?.id ?? '');
   const [modalNotes, setModalNotes] = useState(editingSchedule?.description ?? '');
   const forceRegenRef = useRef(false);
+  const splitContainerRef = useRef<HTMLDivElement>(null);
   const resizeGripRef = useRef<{ startX: number; startY: number; startW: number; startH: number } | null>(null);
   const dragActiveRef = useRef(false);
   const editedShiftsRef = useRef<Record<number, ShiftEdit>>({});
@@ -2387,6 +2395,38 @@ export default function CreateShiftSplitPanel({
     setDialogSize((s) => s === 'normal' ? 'wide' : s === 'wide' ? 'full' : 'normal');
     setDialogDims(null);
   };
+
+  // Horizontal split-pane drag — adjusts left/right panel ratio and persists to localStorage.
+  const handleSplitMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const container = splitContainerRef.current;
+    if (!container) return;
+    const containerWidth = container.getBoundingClientRect().width;
+    const startX = e.clientX;
+    const startPct = leftPct;
+
+    const onMove = (ev: MouseEvent) => {
+      const delta = ev.clientX - startX;
+      const newPct = Math.min(75, Math.max(25, startPct + (delta / containerWidth) * 100));
+      setLeftPct(newPct);
+    };
+
+    const onUp = (ev: MouseEvent) => {
+      const delta = ev.clientX - startX;
+      const finalPct = Math.round(Math.min(75, Math.max(25, startPct + (delta / containerWidth) * 100)));
+      setLeftPct(finalPct);
+      try { localStorage.setItem('taime-split-pct', String(finalPct)); } catch {}
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [leftPct]);
 
   const handleGripPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -2822,11 +2862,23 @@ export default function CreateShiftSplitPanel({
   const effectiveSuggestData = editingSchedule ? undefined : suggestData;
 
   // When the parent has active AI pending shifts for this date (from aiResult),
-  // use them as the proposedShifts source so the panel's "AI Suggested" column
-  // stays in sync with the timeline view. Falls back to the panel's own DB
-  // fetch when no parent data is available, or when editing an existing shift.
+  // use them as the proposedShifts source so the panel's mini-timeline stays
+  // consistent with the schedule page — even in edit mode. Falls back to the
+  // panel's own DB fetch when no parent data is available.
   const resolvedSuggestData = useMemo((): SuggestData | undefined => {
-    if (editingSchedule) return undefined;
+    // In edit mode, still show parent AI pending shifts as visual context so the
+    // dialog's mini-timeline matches what the schedule page displays.
+    if (editingSchedule) {
+      if (!aiPendingShifts?.length) return undefined;
+      return {
+        date: modalDate,
+        proposedShifts: aiPendingShifts,
+        historicalDate: '',
+        dataSource: 'ai',
+        hourlyData: [],
+        storeHours: { open: '09:00', close: '21:00' },
+      };
+    }
     if (!aiPendingShifts?.length) return effectiveSuggestData;
     if (effectiveSuggestData) {
       return { ...effectiveSuggestData, proposedShifts: aiPendingShifts };
@@ -4814,18 +4866,24 @@ export default function CreateShiftSplitPanel({
           </div>
 
         {/* Body — on mobile: single natural-scroll container; on desktop: two side-by-side scroll panes */}
-        <div className={cn(
-          "flex-1 min-h-0",
-          isMobile ? "overflow-y-auto flex flex-col" : "overflow-hidden flex flex-col md:flex-row"
-        )}>
+        <div
+          ref={splitContainerRef}
+          className={cn(
+            "flex-1 min-h-0",
+            isMobile ? "overflow-y-auto flex flex-col" : "overflow-hidden flex flex-row"
+          )}
+        >
 
           {/* ── LEFT PANEL ── */}
-          <div className={cn(
-            "border-border",
-            isMobile
-              ? "flex flex-col border-b"
-              : "md:w-[55%] border-b md:border-b-0 md:border-r flex flex-col min-h-0"
-          )}>
+          <div
+            className={cn(
+              "border-border",
+              isMobile
+                ? "flex flex-col border-b"
+                : "border-r flex flex-col min-h-0 overflow-hidden flex-shrink-0"
+            )}
+            style={isMobile ? undefined : { width: `${leftPct}%` }}
+          >
             {/* Left header */}
             <div className="px-4 py-3 border-b border-border/50 flex-shrink-0 flex items-start justify-between gap-3">
               <div className="min-w-0">
@@ -5125,10 +5183,21 @@ export default function CreateShiftSplitPanel({
             </div>
           </div>
 
+          {/* ── SPLIT DRAG HANDLE — desktop only ── */}
+          {!isMobile && (
+            <div
+              className="w-1.5 flex-shrink-0 cursor-col-resize group relative z-10 select-none"
+              onMouseDown={handleSplitMouseDown}
+              title="Drag to resize panels"
+            >
+              <div className="absolute inset-y-0 left-0 right-0 bg-border/30 group-hover:bg-orange-400/60 group-active:bg-orange-500/80 transition-colors" />
+            </div>
+          )}
+
           {/* ── RIGHT PANEL ── */}
           <div className={cn(
             "flex flex-col",
-            isMobile ? "" : "md:w-[45%] min-h-0"
+            isMobile ? "" : "flex-1 min-h-0 overflow-hidden"
           )}>
             {/* Edit mode banner when an AI block or actual shift is selected */}
             {(isEditingBlock || isActualEditing) && (
@@ -5250,7 +5319,7 @@ export default function CreateShiftSplitPanel({
               </div>
 
               <div>
-                <Label className="text-xs">Employee</Label>
+                <Label className="text-sm font-medium">Employee</Label>
                 <Select
                   name="userId"
                   value={selectedUserId}
@@ -5368,11 +5437,11 @@ export default function CreateShiftSplitPanel({
               )}
 
               <div>
-                <Label className="text-xs">Date</Label>
+                <Label className="text-sm font-medium">Date</Label>
                 <Input
                   name="startDate"
                   type="date"
-                  className="h-8 text-sm"
+                  className="h-9 text-sm"
                   required
                   value={modalDate}
                   onChange={(e) => {
@@ -5403,11 +5472,11 @@ export default function CreateShiftSplitPanel({
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <Label className="text-xs">Start Time</Label>
+                  <Label className="text-sm font-medium">Start Time</Label>
                   <Input
                     name="startTime"
                     type="time"
-                    className="h-8 text-sm"
+                    className="h-9 text-sm"
                     required
                     value={modalStartTime}
                     onChange={(e) => {
@@ -5422,11 +5491,11 @@ export default function CreateShiftSplitPanel({
                   />
                 </div>
                 <div>
-                  <Label className="text-xs">End Time</Label>
+                  <Label className="text-sm font-medium">End Time</Label>
                   <Input
                     name="endTime"
                     type="time"
-                    className="h-8 text-sm"
+                    className="h-9 text-sm"
                     required
                     value={modalEndTime}
                     onChange={(e) => {
@@ -5443,10 +5512,10 @@ export default function CreateShiftSplitPanel({
               </div>
 
               <div>
-                <Label className="text-xs">Role/Title (optional)</Label>
+                <Label className="text-sm font-medium">Role/Title (optional)</Label>
                 <Input
                   name="title"
-                  className="h-8 text-sm"
+                  className="h-9 text-sm"
                   placeholder="e.g., Opener, Closer"
                   value={modalTitle}
                   onChange={(e) => { setModalTitle(e.target.value); setFormDirty(true); }}
@@ -5454,7 +5523,7 @@ export default function CreateShiftSplitPanel({
               </div>
 
               <div>
-                <Label className="text-xs">Location</Label>
+                <Label className="text-sm font-medium">Location</Label>
                 <Select
                   name="locationId"
                   value={modalLocationId}
@@ -5474,7 +5543,7 @@ export default function CreateShiftSplitPanel({
               </div>
 
               <div>
-                <Label className="text-xs">Notes</Label>
+                <Label className="text-sm font-medium">Notes</Label>
                 <Textarea
                   name="description"
                   className="text-sm"
@@ -5614,7 +5683,7 @@ export default function CreateShiftSplitPanel({
                 );
               })()}
 
-              <div className="flex justify-between gap-2 pt-1 pb-2">
+              <div className={cn("flex gap-2 pt-2 pb-2", isMobile ? "flex-col" : "justify-between")}>
                 {/* Delete button — actual shift or existing saved schedule */}
                 {isActualEditing ? (
                   <Button
