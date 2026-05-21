@@ -1225,6 +1225,7 @@ function HorizontalDayRow({
     const clamped     = clamp(totalMins, DAY_START_HOUR * 60, DAY_END_HOUR * 60 - SNAP_MINUTES);
     const hh = String(Math.floor(clamped / 60)).padStart(2, '0');
     const mm = String(clamped % 60).padStart(2, '0');
+    console.log('[DBG] HorizontalDayRow.handleClick fired', { date: date.toISOString(), time: `${hh}:${mm}` });
     onSlotClick(date, `${hh}:${mm}`);
   }, [hourPx, date, onSlotClick]);
 
@@ -1454,14 +1455,17 @@ function HorizontalWeekView({
                     i % 2 === 0 ? "bg-background" : "bg-muted/20",
                   )}
                 >
-                  {/* Sticky day label */}
+                  {/* Sticky day label — clicking opens create-shift panel for this day */}
                   <div
                     className={cn(
-                      "sticky left-0 z-10 shrink-0 flex flex-col items-center justify-center border-r",
+                      "sticky left-0 z-10 shrink-0 flex flex-col items-center justify-center border-r cursor-pointer select-none",
                       i % 2 === 0 ? "bg-background" : "bg-muted/20",
                       isToday && "bg-primary/[0.04]",
+                      "hover:bg-primary/10 transition-colors",
                     )}
                     style={{ width: `${DAY_LABEL_W}px`, minHeight: `${H_LANE_H + H_ROW_PAD}px` }}
+                    onClick={(e) => { e.stopPropagation(); onSlotClick(date, '09:00'); }}
+                    title="Click to add a shift on this day"
                   >
                     <span className={cn(
                       "text-[10px] font-medium uppercase tracking-wide",
@@ -2054,6 +2058,7 @@ export default function ScheduleTimelineView({
 
   // Click-to-create
   const handleSlotClick = useCallback((date: Date, startTime: string) => {
+    console.log('[DBG] handleSlotClick called', { isAdmin, date: date.toISOString(), startTime });
     if (!isAdmin) return;
     onCreateShift(formatLocalDate(date), startTime);
   }, [isAdmin, onCreateShift]);

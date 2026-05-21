@@ -1550,6 +1550,18 @@ export default function ScheduleManagement() {
     setShowCreateShift(true);
   };
 
+  // Stable callback passed to ScheduleTimelineView's onCreateShift prop.
+  // Memoised so handleSlotClick (and every HorizontalDayRow.handleClick
+  // derived from it) doesn't recreate on every ScheduleManagement render.
+  const handleTimelineCreateShift = useCallback((date: string, startTime: string) => {
+    console.log('[DBG] ScheduleManagement.onCreateShift called', { date, startTime });
+    setEditingSchedule(null);
+    setModalDate(date);
+    setModalStartTime(startTime);
+    setCreateShiftDefaults({ date });
+    setShowCreateShift(true);
+  }, []);
+
   // Computes the `selectedWeek` offset whose visible Sun–Sat range contains the
   // given YYYY-MM-DD date, so the panel's "Jump to that week" toast action
   // can land the grid on the week of a just-saved shift.
@@ -2020,13 +2032,7 @@ export default function ScheduleManagement() {
             selectedWeek={selectedWeek}
             onWeekChange={setSelectedWeek}
             onEditSchedule={openEditShift}
-            onCreateShift={(date, startTime) => {
-              setEditingSchedule(null);
-              setModalDate(date);
-              setModalStartTime(startTime);
-              setCreateShiftDefaults({ date });
-              setShowCreateShift(true);
-            }}
+            onCreateShift={handleTimelineCreateShift}
             isAdmin={isAdmin}
             selectedScheduleId={editingSchedule?.id ?? null}
             hideToolbar={true}
