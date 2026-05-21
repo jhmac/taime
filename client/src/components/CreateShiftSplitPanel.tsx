@@ -296,7 +296,7 @@ function ShiftBlock({
               ? "ring-[3px] ring-amber-400 ring-offset-2 opacity-100 scale-[1.02] shadow-lg z-10 relative"
               : isDraft
               ? "ring-[3px] ring-slate-400 ring-offset-2 opacity-100 scale-[1.02] shadow-lg z-10 relative"
-              : "ring-[3px] ring-white ring-offset-2 opacity-100 scale-[1.02] shadow-lg z-10 relative"
+              : "ring-[3px] ring-orange-500 ring-offset-2 opacity-100 scale-[1.02] shadow-lg z-10 relative"
             : !isExcluded
             ? "opacity-90 hover:opacity-100"
             : ""

@@ -570,7 +570,7 @@ export default function PanelHorizontalTimeline({
                   colorCls,
                   onSelectActualShift ? "cursor-pointer" : "cursor-default",
                   isSelected
-                    ? "ring-2 ring-white ring-offset-1 z-20 shadow-lg opacity-100"
+                    ? "ring-2 ring-orange-500 ring-offset-1 z-20 shadow-lg opacity-100"
                     : "opacity-90 hover:opacity-100 hover:shadow-sm"
                 )}
                 style={{ left: `${left}px`, width: `${width}px`, top: `${top}px`, height: `${height}px` }}
@@ -623,7 +623,7 @@ export default function PanelHorizontalTimeline({
                       ? "ring-[2px] ring-amber-400 ring-offset-1 shadow-lg z-10 opacity-100"
                       : isDraftCard
                       ? "ring-[2px] ring-slate-400 ring-offset-1 shadow-lg z-10 opacity-100"
-                      : "ring-[2px] ring-white ring-offset-1 shadow-lg z-10 opacity-100"
+                      : "ring-[2px] ring-orange-500 ring-offset-1 shadow-lg z-10 opacity-100"
                     : "opacity-90 hover:opacity-100 hover:shadow-sm"
                 )}
                 style={{ left: `${left}px`, width: `${width}px`, top: `${top}px`, height: `${height}px` }}
