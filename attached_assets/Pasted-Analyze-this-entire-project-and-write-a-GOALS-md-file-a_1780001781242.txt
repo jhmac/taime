@@ -1,0 +1,136 @@
+Analyze this entire project and write a GOALS.md file at the repository root, then commit and push it. GOALS.md is the ONLY document a downstream coding assistant (Sneebly) will use to generate detailed build specs and finish this app — so it must be honest about what's done AND rich enough that someone who has never seen this codebase could build the unfinished features correctly from the descriptions alone.
+
+## TWO CRITICAL FORMAT RULES (read both, twice)
+
+### Rule 1 — Roadmap bullet format
+Every feature bullet in the "## Roadmap" section MUST start with "- [x] " (done) or "- [ ] " (not done). Do NOT use "* Feature", "- Feature" (no checkbox), "1. Feature" (numbered), or any other style. If the bullet format is wrong, Sneebly's parser silently drops all features and the import is wasted.
+
+### Rule 2 — Roadmap bullet LENGTH (this one causes the most broken imports)
+The FEATURE NAME in each roadmap bullet — the words before the " — " separator — MUST be 3–7 words, no more. This name becomes the spec filename. If it is long, the filename breaks on most operating systems.
+
+  GOOD: "- [ ] AI auto-scheduling — Claude schedule generation from sales history (partial: no production wiring)"
+  GOOD: "- [ ] Stripe billing — subscription management, plan picker, webhook handler (not started)"
+  BAD:  "- [ ] AI auto-scheduling — Claude-powered schedule generation using Shopify sales history, staffing tiers, availability, zone minimums, and custom AI rules"
+  BAD:  "- [ ] Employee account hard-delete cascade — self-delete UI and basic backend route exist; FK cascade cleanup missing across all dependent tables (partial: most related tables lack onDelete cascade)"
+
+The part AFTER the " — " is ONE sentence max. Put all the real detail in the "## Key Features" section where there is no length limit.
+
+## Step 1 — Scan the project
+
+Read the source thoroughly. Pay attention to:
+- README, CLAUDE.md, /docs, /specs (anything describing the product or intent)
+- Database schemas (tables, columns, relations — Drizzle, Prisma, raw SQL)
+- API routes/handlers (registered + implemented vs stubbed)
+- Frontend pages/components (rendered vs returning null/TODO)
+- Tests (what's tested is likely implemented)
+- TODO / FIXME / "not implemented" / throw new Error("...") markers
+Skip node_modules, .git, build output, vendored libs. If /specs exists, treat it as authoritative for intent.
+
+## Step 2 — Describe the product
+
+In 3-5 sentences: what does the app do (lead with the core user value), the user roles, then the technical context. No marketing fluff — this is for a coding assistant.
+
+## Step 3 — Identify features and their honest state
+
+Break the product into discrete, shippable features. For each, decide:
+- Done: implemented end-to-end (UI through to storage). No critical TODOs. You'd trust it in production.
+- Partial: started but incomplete — UI without backend, backend without UI, happy path only, or a function that doesn't actually do its job.
+- Not started: mentioned in docs/comments but no meaningful code.
+Be ruthlessly honest. "It compiles" is not "done." "There's a button" is not "done." If unsure, call it partial.
+
+## Step 4 — Write a DETAILED description of every UNFINISHED feature
+
+This is the most important step. For each feature that is NOT fully done (partial or not started), write enough that Sneebly can build a complete spec WITHOUT re-deriving the product vision. Cover ALL of the following:
+
+**For every unfinished feature:**
+- Purpose — what the feature accomplishes for which user role
+- Primary flow — the main steps the user takes and what the system does at each step
+- Key data / entities — the main records, fields, and relationships involved; reference real table/column names from the schema where they exist; for not-started features, list the new tables and columns that need to be created with their types
+- Rules & edge cases — validation rules, permission checks, important states, error handling, race conditions
+- API shape — the HTTP routes or IPC handlers needed (method, path, request body, response shape)
+- Files to create or modify — list specific file paths the implementation will touch; for not-started features this is the implementation skeleton
+
+**For PARTIAL features, also include:**
+- Current state — exactly what code exists today, with file paths
+- What is missing — the specific gap between current state and done
+- Done looks like — 3-5 testable conditions that define completion
+
+Done features do NOT need this detail — one line is enough. Their code is the source of truth.
+
+## Step 5 — Group into phases
+
+5-12 features per phase, shipping in order (MVP first). If there's no natural phasing, use a single "Phase 1: All features".
+
+## Step 6 — Write GOALS.md in EXACTLY this format
+
+# <Project name>
+
+## Mission
+
+<3-5 sentence product description from Step 2>
+
+## Tech Stack
+
+- Language: <e.g. TypeScript>
+- Framework: <e.g. React + Vite, Next.js>
+- Backend: <e.g. Node/Express>
+- Database: <e.g. PostgreSQL via Drizzle>
+- Auth: <e.g. Clerk>
+- <other notable stack choices found in the code>
+
+## Key Features
+
+### <Feature name — MUST match the roadmap bullet name exactly, word for word>
+
+<The full description from Step 4. Required for every unfinished feature. Write as much as needed — there is no length limit here. Done features may be omitted or given a one-liner.>
+
+### <Next feature>
+
+<...>
+
+## Roadmap
+
+<one-line note on how the phases ship>
+
+### Phase 1: <Title>
+
+- [x] User authentication — Clerk OAuth, email/password fallback, JWT session
+- [x] Employee profiles — HR metadata, documents, availability, pay rates
+- [ ] AI auto-scheduling — schedule generation from sales history (partial: no production wiring)
+- [ ] RAG semantic search — pgvector + Xenova embeddings for SOP search (not started)
+
+### Phase 2: <Title>
+
+- [x] AI morning briefing — daily store summary generated via Claude
+- [ ] SOP evolution system — AI revision proposals from execution feedback (partial: generator exists, no review UI)
+
+## Output rules (critical)
+
+- GOALS.md MUST exist at the repository root.
+- The product description MUST be under "## Mission".
+- EVERY "- [ ]" roadmap item MUST have a matching "### <Feature name>" entry in "## Key Features" with the full Step 4 detail. The heading name and the roadmap bullet name MUST be identical — same words, same capitalization. This is what Sneebly builds specs from.
+- Roadmap bullet feature names: 3–7 words ONLY. The description after " — " is ONE sentence max. All detail goes in Key Features.
+- No emoji. No markdown tables in the Roadmap section.
+- Don't invent features not in the code or docs. Don't mark done what isn't.
+
+## Step 7 — Verify format and bullet length, then commit
+
+Run these two checks before staging:
+
+**Check 1 — bullet format:**
+
+    grep -c "^- \[" GOALS.md
+
+Count must be >= total features listed. If lower, your bullets are wrong format. Fix all to start with "- [x] " or "- [ ] ".
+
+**Check 2 — bullet name length (the one that breaks spec filenames):**
+
+    grep "^- \[" GOALS.md | awk -F ' — ' '{print $1}' | awk '{print length, $0}' | sort -rn | head -5
+
+This prints the 5 longest feature names (the part before " — "). Any name over 60 characters is too long and will create a broken spec filename. Shorten those names to 3-7 words and move the excess detail into the "## Key Features" section.
+
+Once both checks pass, commit and push:
+
+    git add GOALS.md && git commit -m "Add GOALS.md describing current project state" && git push origin main
+
+If git isn't configured or the push fails, save GOALS.md and tell me what happened.
